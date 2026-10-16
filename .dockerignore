@@ -1,0 +1,46 @@
+# 构建上下文裁剪：不进镜像的东西（镜像内不得含密钥）
+# 参考：https://docs.docker.com/engine/reference/builder/#dockerignore-file
+
+# ---- 密钥与本地配置（关键：绝不进镜像）----
+.env
+.env.*
+!.env.example
+
+# ---- 虚拟环境 / 本地解释器 ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- 运行时产物（保留 data/knowledge、data/eval 由 Dockerfile 显式 COPY）----
+data/qdrant_storage/
+data/db/
+data/reports/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+logs/
+uploads/
+
+# ---- 测试与检查缓存 ----
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ---- 版本控制 / 编辑器 / 规范文档 ----
+.git/
+.gitignore
+.trae/
+.idea/
+.vscode/
+docs/
+tests/
+
+# ---- 部署与容器自身（无需进入镜像）----
+Dockerfile
+docker-compose.yml
+.dockerignore
+deploy/

@@ -1,0 +1,70 @@
+# AI 模拟面试官 - 生产镜像（多阶段构建）
+#
+# 一个镜像同时承载后端 API（uvicorn）与前端（Streamlit），
+# 由 docker-compose 用不同 command 分别启动，避免重复构建与版本漂移。
+#
+# 构建：
+#   docker build -t ai-interviewer:latest .
+# 本地直接运行后端：
+#   docker run --rm -p 8000:8000 --env-file .env ai-interviewer:latest
+
+# ============================================================
+# Stage 1：用 uv 安装依赖（独立层，充分利用构建缓存）
+# ============================================================
+FROM python:3.11-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+# uv 版本与开发环境保持一致（uv --version = 0.13.0），保证锁定解析结果一致
+RUN pip install "uv==0.13.0"
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+# 仅复制依赖声明文件，先同步第三方依赖：
+# 源码变动不会使依赖层缓存失效；同时锁定 uv.lock 保证可复现。
+# --no-install-project：本项目以 /app 下的源码直接运行（见下），
+#   若把项目装进 site-packages，settings.py 的 BASE_DIR 会指向 site-packages，
+#   导致 .env 与 data/ 相对路径解析错位，故不安装项目本身。
+# README.md 被 pyproject 的 readme 字段引用，构建元数据需要它存在。
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev --no-install-project --extra obs
+
+# ============================================================
+# Stage 2：运行时（只带依赖与源码，非 root 运行）
+# ============================================================
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    # 虚拟环境与源码路径：scripts/*.py 依赖 "当前目录即项目根"
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
+    HOME=/home/appuser \
+    LANG=C.UTF-8
+
+# 非 root 运行：UID/GID 1000 与常见云主机部署用户一致
+RUN groupadd --gid 1000 appuser \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash appuser
+
+WORKDIR /app
+COPY --from=builder /app/.venv /app/.venv
+COPY app/ ./app/
+COPY frontend/ ./frontend/
+COPY scripts/ ./scripts/
+# 知识库随镜像分发（不是卷）：保证 ingest_kb.py 读到的始终是本次构建的文档
+COPY data/knowledge/ ./data/knowledge/
+COPY data/eval/ ./data/eval/
+COPY pyproject.toml README.md ./
+
+# 可写目录：命名卷挂载点。命名卷首次创建时会继承镜像内目录属主，
+# 因此非 root 的 appuser 对卷有写权限（无需启动时 chown）。
+RUN mkdir -p /app/data/db /app/data/reports /app/logs \
+    && chown -R appuser:appuser /app/data /app/logs
+
+USER appuser
+EXPOSE 8000 8501
+
+# 默认启动后端；Streamlit 前端由 compose 覆写 command
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

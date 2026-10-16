@@ -1,0 +1,372 @@
+# AI 模拟面试官（RAG + Agent）- 实施计划
+
+> 预计 10 个工作日。每个任务均含可自验的测试要求（TR）；`rule` 为可客观判定的二元条件，`rubric` 为评分项。依赖以任务 ID 表示。
+
+## Task 1: 项目骨架、配置与健康检查
+- **Status**: `completed`
+- **Completion Evidence**:
+  - `uv sync` 在 Python 3.11.9（`.python-version` 固定）全新虚拟环境零错误；核心依赖（fastapi/openai/langgraph/qdrant-client/rank-bm25/jieba/pypdf/streamlit/plotly）+ dev 组安装完成；ragas/langfuse 在可选组按需安装。
+  - 配置：`app/config/settings.py`（pydantic-settings 集中加载、派生模型配置、路径统一解析到项目根、`config_status()` 不泄露密钥）；`.env.example` 覆盖全部变量；`.gitignore` 忽略 `.env` 且保留 `.env.example`/`.python-version` 入库。
+  - 缺 key 校验：`validate_runtime()` 抛含变量名（DEEPSEEK_API_KEY/SILICONFLOW_API_KEY）与 .env 指引的中文 `ConfigurationError`（测试覆盖）。
+  - `GET /health`：实测 HTTP 200，返回 config 与 components.qdrant（local 模式探测数据目录可写、server 模式探 /healthz）；未配 key 时整体 degraded 但进程存活；httpx 验证中文 UTF-8 正确（PS5 乱码仅为客户端显示问题）。
+  - `pytest -q`：11 passed；`ruff check app tests`：All checks passed。
+- **Priority**: high
+- **Depends On**: None
+- **Description**:
+  - 使用 uv 初始化 Python 3.11 项目（`pyproject.toml`），锁定依赖：fastapi、uvicorn、pydantic、pydantic-settings、langchain（含 openai/text-splitters 等必要子包）、langgraph、qdrant-client、rank-bm25、pypdf、streamlit、plotly、httpx、ragas、pytest、pytest-asyncio 等。
+  - 建立分层目录：`app/{config,core,rag,agent,api,storage,observability,eval}`、`frontend/`、`scripts/`、`tests/`、`data/{knowledge,eval}`、`deploy/`。
+  - 实现集中配置（`app/config.py`，pydantic-settings）：DeepSeek/SiliconFlow 的 api_key/base_url/model、Qdrant、检索参数、Langfuse 开关、上传限制；启动期校验缺失关键配置并给出中文可读报错。
+  - 编写 `.env.example`（无真实 key）、`.gitignore`（含 `.env`、数据目录、`.venv` 等）、最小 FastAPI 应用与 `/health`（检查配置与 Qdrant 连通性）。
+- **Acceptance Criteria Addressed**: AC-1, AC-12
+- **Test Requirements**:
+  - `rule` TR-1.1: 全新虚拟环境执行 `uv sync` 零错误；`uv run uvicorn` 启动后 `GET /health` 返回 200 且 JSON 含 qdrant 状态字段。
+  - `rule` TR-1.2: 缺失 DEEPSEEK_API_KEY 时启动/配置加载产生明确报错信息（包含变量名），而非堆栈式 KeyError；`.env.example` 与 `.gitignore` 存在且 `.env` 不会被 git 跟踪。
+  - `rule` TR-1.3: pytest 基线可运行（含一个配置加载单测），`pytest -q` 通过。
+
+## Task 2: 示例数据与文档摄入管线
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-2.1 真实摄入（2026-10-16，真实 SiliconFlow embedding）：`ingest_kb.py --rebuild` → resume=13 / jd=19 / qa=41，集合总点数=73；不带 --rebuild 再跑一次 → 各类"替换旧点 N 个"、总点数仍为 73（幂等成立）。
+  - TR-2.2/TR-2.3：chunker/loader/ingestion 共 17 个离线用例通过；抽样 chunk 含 chunk_id/source/kb_type/heading/text 五字段（test_qdrant_ingestion.py 覆盖）。
+- **Progress Notes**（实现要点存档）:
+  - 示例数据：中文简历（埋入 RAG/高并发项目细节）、中文 JD、英文 JD、八股题库 40 条（Python×10/后端×10/LLM×10/RAG-Agent×10）。
+  - loader（PDF 用 pypdf 按页、MD 自研标题解析、TXT）、chunker（标题层级 + overlap 滑窗 + 句号边界回退 + 确定性 chunk_id）。
+  - QdrantStore：local/server 双模式、uuid5 稳定 point id、delete_source 幂等、count/scroll/search/reset；规避了 Qdrant local 同名集合重建数据复活的坑（reset 改为按 point 删除）。
+  - ingestion 服务 + `scripts/ingest_kb.py`（--rebuild、分类计数）。
+  - 离线测试：chunker/loader（含动态生成的最小 PDF fixture）/local Qdrant 端到端幂等等 17 个用例通过。
+- **Priority**: high
+- **Depends On**: Task 1
+- **Description**:
+  - 编写内置示例数据：中文示例简历（Markdown）、模拟后端/AI 应用岗位 JD（中文 1 份 + 英文 1 份）、八股题库 30-50 条（Python/后端/LLM/RAG 方向，Markdown 结构化条目，每题含标题、答案要点、标签）。
+  - 实现文档加载器（PDF 用 pypdf；Markdown/TXT 原生解析）与结构化切块器：保留标题层级（heading）、可配置 chunk_size/overlap、题库按条目切块；生成确定性 chunk_id（source + 序号哈希）。
+  - 实现 Qdrant 访问层：按 kb_type 建/用集合（或单集合 + kb_type 字段），upsert 幂等（按 chunk_id 去重，重建前删除同 source 旧 chunk）、count、按元数据 scroll/delete。
+  - 提供 `scripts/ingest_kb.py`：一键摄入 `data/knowledge`，支持 `--rebuild`，输出分类计数。
+- **Acceptance Criteria Addressed**: AC-2, AC-12
+- **Test Requirements**:
+  - `rule` TR-2.1: 摄入脚本成功执行，按三类 kb_type 输出 chunk 计数且题库条目数与文件一致；连续执行两次 Qdrant 总点数不变（幂等）。
+  - `rule` TR-2.2: 切块器单测：标题层级保留、overlap 生效、chunk_id 确定性（同输入两次一致）；PDF/Markdown 各用一个 fixture 文档通过解析测试。
+  - `rule` TR-2.3: 抽样 scroll 出的 chunk 完整包含 chunk_id/source/kb_type/heading/text 五个字段。
+
+## Task 3: DeepSeek / SiliconFlow 模型客户端
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-3.1 真实验活（2026-10-16）：`check_models.py` 三接口全部 HTTP 200——chat(deepseek-flash) 返回 'pong'；embedding(bge-m3) 维度=1024；rerank(bge-reranker-v2-m3) 降序 #0=0.9960/#1=0.0000。（注：首次验证曾因 SiliconFlow 余额不足 402，充值后通过；用户 .env 中对话模型配置为 deepseek-flash。）
+  - TR-3.2/TR-3.3：mock 测试 10 个用例通过（401 不重试/429 重试/超时重试/流式拼接/embedding 保序/rerank 排序）。
+- **Progress Notes**（实现要点存档）:
+  - 统一异常体系（401/400/404 不重试，429/超时/5xx 指数退避 2 次，中文排查建议，不回显 key）；共享 http_utils。
+  - DeepSeekChatClient：chat/stream_chat（SSE）、按用途绑定模型与温度、json_mode；SiliconFlowEmbedder（批处理保序、1024 维）；SiliconFlowReranker（/rerank 降序结果）。
+  - `scripts/check_models.py` 三接口真实验活（表格/--json、缺失 key 友好退出码 2）。
+  - mock 测试 10 个：成功、401 不重试、429 重试至成功/耗尽、超时重试、流式拼接、embedding 维度与顺序、rerank 排序与 401。
+- **Priority**: high
+- **Depends On**: Task 1
+- **Description**:
+  - 实现 `app/core/llm.py`：基于 OpenAI 兼容协议的 DeepSeek 聊天客户端（同步 + 异步、流式接口），按用途（出题/追问/评分/改写）提供不同默认参数的工厂方法，统一超时与最多 2 次指数退避重试。
+  - 实现 `app/core/embedding.py`（SiliconFlow bge-m3，批量 embedding）与 `app/core/reranker.py`（bge-reranker-v2-m3，HTTP 调用 rerank 端点）。
+  - 统一异常分类：401（key 无效）、404（模型不存在）、429（限流）、超时，转换为含中文说明与排查建议的自定义异常；错误信息不得泄露 key。
+  - 提供 `scripts/check_models.py`：真实调用三个接口各一次，输出结构化可用性结论（模型名/接口类型/HTTP 状态/结论），供部署期验活。
+- **Acceptance Criteria Addressed**: AC-1, AC-3
+- **Test Requirements**:
+  - `rule` TR-3.1: 配置真实 key 时 `check_models.py` 对 chat/embedding/rerank 三个接口均输出"可用"（以实际 HTTP 200 与返回体为证据，禁止臆测）。
+  - `rule` TR-3.2: 使用 mock HTTP 层模拟 401/429/超时，断言抛出对应自定义异常且重试次数正确（429/超时重试、401 不重试）。
+  - `rule` TR-3.3: reranker 对固定 query+文档列表返回降序分数与文档索引；embedding 批处理返回维度正确（1024）。
+
+## Task 4: 混合检索与查询改写
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-4.1：RRF 手算对照单测通过（`test_rrf_hand_computed`：k=10 下 a/b/c/d 分数与手算 1/11+1/13 等逐项一致；`test_rrf_k_value_changes_scores` 验证 k 值对分数与平缓度的影响；同分确定性、空输入、非法 k 均覆盖）。
+  - TR-4.2 真实集成（2026-10-16，真实 Qdrant 73 chunks + SiliconFlow + DeepSeek 改写）：`pytest -m integration` 通过。真实检索 "Redis 缓存穿透和缓存雪崩有什么区别？如何防范？"（kb_types=["qa"]）：Multi-Query 生成 3 条改写（共 4 路向量查询），Top-1 命中题库 Q14（缓存穿透/击穿/雪崩），`vector_rank=1 且 bm25_rank=1`（双路命中溯源成立），rerank_score 降序 0.9990 / 0.0092 / 0.0068；kb_types=["resume"] 过滤后结果全部 kb_type=resume。
+  - TR-4.3：mock LLM（MockTransport + 真实 DeepSeekChatClient）验证开关——改写全关时 embedder 输入仅原查询且零 LLM 调用；Multi-Query 开时 embedding 输入 = 原查询+2 改写（3 路）；HyDE 开时追加假设答案向量一路；改写命中记入 matched_queries 溯源。
+  - 基线：`pytest -q` 52 passed（新增 14 个用例）；`ruff check app tests` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/rag/fusion.py`：RRF 纯函数（rank 从 1 计、同分按 ID 字典序保证确定性）。
+  - `app/rag/bm25.py`：rank_bm25 + jieba 分词（英文/数字小写化），heading+text 参与打分，内存索引（≤2000 chunk 毫秒级构建，不持久化），0 分结果剔除，持有 chunk_id→Chunk 映射供 kb_type 过滤。
+  - `app/rag/rewrite.py`：Multi-Query（json_mode + 行解析兜底、原查询居首去重截断 n+1）与 HyDE；任一策略 LLM 失败降级不中断检索；开关读 settings。
+  - `app/rag/retriever.py`：`Retriever.retrieve(query, kb_types, top_k)` → `RetrievalResult(chunks, trace)`；RetrievedChunk 含 vector_score/vector_rank/bm25_rank/rrf_score/rerank_score/matched_queries；流程=改写→每改写查询一路向量召回+HyDE 追加一路→BM25 原查询一路→RRF(k=settings.retrieval_rrf_k)→rerank 融合前 max(4*top_k,20) 候选取 Top-K；BM25 索引懒构建 + `refresh_bm25()` 供摄入后刷新。
+- **Priority**: high
+- **Depends On**: Task 2, Task 3
+- **Description**:
+  - 实现查询改写器：Multi-Query（一次生成 N 个改写）与 HyDE（生成假设答案再以其向量检索），各自可通过配置开关；改写结果与策略记入检索溯源。
+  - 实现双路召回：向量路（Qdrant，含 kb_type 过滤）+ BM25 路（索引随集合构建/持久化，rank_bm25，支持中文按字符或 jieba 分词——优先简单可靠方案并在文档注明）。
+  - 实现 RRF 融合（k 参数可配），对多路结果融合去重；融合后调用 SiliconFlow reranker 精排取 Top-K。
+  - 暴露统一 `Retriever.retrieve(query, kb_types, top_k)` 返回 `RetrievedChunk` 列表（含 vector_score/bm25_rank/rrf_score/rerank_score 与来源元数据）。
+- **Acceptance Criteria Addressed**: AC-3, AC-12
+- **Test Requirements**:
+  - `rule` TR-4.1: RRF 纯函数单测：用手工构造的两路排名列表验证融合排序与 k 值影响，结果与手算一致。
+  - `rule` TR-4.2: 集成测试（可打集成标记，真实 Qdrant + SiliconFlow）：给定岗位问题，返回 Top-K 按 rerank_score 降序，且溯源字段中能同时看到向量路与 BM25 路的命中文档；kb_type 过滤后结果不含其他类型 chunk。
+  - `rule` TR-4.3: mock LLM 验证 Multi-Query/HyDE 开关分别生效/关闭时检索调用次数与查询内容符合预期。
+
+## Task 5: Agentic RAG 检索质量自评与重检索
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-5.1：mock LLM（MockTransport 队列 no→yes）断言发生一次重检索且第二轮查询文本变为评估给出的改进查询（"Redis 缓存穿透 布隆过滤器"）；首轮 yes 时只检索一次、chat 恰好 1 次；评估未给改进查询时兜底为"原查询+理由"拼接，保证文本改变（`test_fallback_query_guarantees_text_change`）。
+  - TR-5.2：连续 no 达上限（adaptive_max_rewrite_rounds=2，共 3 次检索）断言循环终止、`stopped_reason=max_rounds_reached`、返回各轮中 Top-1 rerank 分数最优轮（0.3/0.8/0.5 中取 0.8），caplog 含"达到最大轮次"。
+  - TR-5.3：LLM 连续返回非法输出，重试一次后保守放行（视为充足、不重检索、/chat/completions 恰好 2 次、不抛未处理异常），caplog 含"保守放行"。
+  - 解析单测：JSON yes/no、关键词兜底（是/否/yes/no）、`insufficient` 不被子串 "sufficient" 误判、`cannot` 类不被 "no" 误命中（词边界正则 + 开头窗口）、垃圾输出返回 None。
+  - 真实联调（2026-10-16，真实 Qdrant 73 chunks + SiliconFlow + DeepSeek eval）：`pytest -m integration` 通过。真实查询 "Redis 缓存穿透和缓存雪崩有什么区别？如何防范？"（kb_types=["qa"]）：第 1 轮即 `sufficient=True`、top_score=0.9990，DeepSeek 理由"上下文[1]直接对比了缓存穿透、击穿、雪崩的区别并给出了各自的防范方案，足以回答该问题"，轮次日志结构化输出。
+  - 基线：`pytest -q -m "not integration"` 58 passed；`ruff check app tests` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/rag/adaptive.py`：`SufficiencyVerdict`（sufficient/reason/improved_query）；`_parse_verdict` JSON 优先 + 词边界关键词兜底；评估节点 `purpose="eval"` + json_mode，上下文取 Top-3 各 200 字摘要，非法输出重试一次后保守放行、调用异常亦保守放行（不中断检索主流程）。
+  - `AdaptiveRetriever.retrieve(query, kb_types, top_k) -> AdaptiveResult(retrieval, rounds, stopped_reason, verdicts)`：复用 Task 4 `Retriever` 不改其内部；每轮判定/查询/top 分数写 logger.info；达上限返回各轮 Top-1 rerank 分数最优轮；每轮 verdict 留存供 trace。
+- **Priority**: high
+- **Depends On**: Task 4
+- **Description**:
+  - 实现检索评估节点：LLM 依据"问题 + 召回上下文"判定是否 sufficient（结构化 yes/no + 理由），带 JSON 输出约束与解析兜底。
+  - 实现自适应检索循环：不足时基于反馈改写查询重新走混合检索，最多 `max_rewrite_rounds`（默认 2）次；充足或达上限即返回；每轮判定与命中变化写结构化日志/trace。
+  - 封装为 `AdaptiveRetriever`，供出题/追问节点调用。
+- **Acceptance Criteria Addressed**: AC-4
+- **Test Requirements**:
+  - `rule` TR-5.1: mock LLM 连续返回 no→yes，断言发生一次重检索且第二轮查询文本改变；返回 yes 时断言只检索一次。
+  - `rule` TR-5.2: 连续 no 达上限时断言循环终止、返回当前最优结果且日志记录"达到最大轮次"。
+  - `rule` TR-5.3: LLM 返回非法 JSON 时有兜底处理（默认重试一次后保守放行），不抛未处理异常。
+
+## Task 6: 会话状态与持久化
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-6.1：临时 SQLite 文件（tmp_path）仓储测试 5 项通过——会话创建/读取全字段相等、状态更新、消息按插入序返回且证据引用（EvidenceRef 含 score）往返一致、state 快照（含中文/浮点/嵌套 dict）反序列化后与原对象相等且 upsert 覆盖生效、报告 InterviewReport 保存/读取/覆盖相等、仓储重复构造幂等。
+  - TR-6.2：schema 校验 2 项通过——合法样例（含 SSE 四类事件 encode 为 `event: <type>\ndata: <json>\n\n` 线格式）全部接受；非法样例全部 ValidationError（score=0/6 越界、缺 score/track、空证据、空 track、题目数 0/11、highlights/weaknesses/suggestions 为空、done reason 非法值）。
+  - 基线：`pytest -q -m "not integration"` 65 passed；`ruff check app tests` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/api/schemas.py`（前后端唯一契约）：CreateSessionRequest（track/num_questions 1-10/candidate_name）、SessionRecord、MessageRecord（role ∈ interviewer/candidate/system、stage 与 Task 7 节点对齐的 InterviewStage、evidence 引用）、SseEvent（stage/token/error/done + encode()）、InterviewReport（REPORT_DIMENSIONS 五维度、DimensionScore 1-5 分且 evidence 非空、亮点/不足/建议非空、RecommendedTopic 带 source 回链）。
+  - `app/storage/db.py`：SessionRepository（stdlib sqlite3，每次操作独立连接对多线程安全，CREATE TABLE IF NOT EXISTS）；sessions/messages/states/reports 四表；save_state 为 sort_keys JSON upsert；报告以 model_dump_json 存取。
+  - 复用 settings.sqlite_path（./data/interview.db），未新增配置。
+- **Priority**: medium
+- **Depends On**: Task 1
+- **Description**:
+  - SQLite（标准库 sqlite3 或 SQLModel）存储会话：session、message（角色/内容/阶段/证据引用）、state 快照（LangGraph checkpoint 兼容的 JSON）、报告。
+  - 设计 Pydantic schema（`app/api/schemas.py` 作为前后端唯一契约来源）：创建会话请求/响应、SSE 事件（stage/token/error/done）、报告 schema。
+  - 提供仓储层接口：create_session / append_message / save_state / load_state / save_report / get_session。
+- **Acceptance Criteria Addressed**: AC-5, AC-6, AC-7, AC-12
+- **Test Requirements**:
+  - `rule` TR-6.1: 仓储层单测（临时 SQLite 文件）：完整 CRUD 往返一致；state 快照序列化/反序列化后与原对象相等。
+  - `rule` TR-6.2: schemas 对合法/非法样例分别通过/拒绝校验（如维度分越界、缺字段）。
+
+## Task 7: LangGraph 面试状态机
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-7.1：mock LLM 队列（MockTransport）跑完整图 2 题含 1 次追问——`node_trace` 精确等于 [greeting, ask_question, receive_answer, assess_answer, followup, receive_answer, assess_answer, ask_question, receive_answer, assess_answer, final_evaluation, report]；追问不计题数（questions_asked=2）；消息按 7 条角色序落库、出题消息带 ev-1 证据引用、追问消息 stage=followup；报告落库且五维度齐全、会话状态 finished；评估汇总 quality_counts={good:2, partial:1}。追问上限用例：连续 partial/poor 时 followup 恰好出现 2 次后结束。出题 3 次重试全 500 → 降级证据模板题（含"考点1"、evidence_ids=["ev-1"]）；研判垃圾输出 → 默认 good 放行。
+  - TR-7.2：start + 答 1 题后"崩溃"，InterviewEngine.restore(同一 session_id) 恢复——node_trace/已问题数/历史回答完整，继续答第 2 题正常结束、消息总数 5 条；未知 session 恢复返回 None。
+  - 提前结束：finish() 走 final_evaluation→report 且幂等，结束后提交回答抛 RuntimeError。
+  - 基线：`pytest -q -m "not integration"` 72 passed；`ruff check app tests` All checks passed。
+  - TR-7.3（rubric 追问相关性）：评分 5/5（阈值 ≥4，达成）。2026-10-16 Task 9 真实全链路（test_real_full_chain_via_api，空泛作答触发）取 3 个真实追问样例人工评查：①"你简历里写从0到1负责RAG知识库落地，那请具体说一下文档切块策略和混合检索是怎么实现的？"——精确锁定回答回避点并引用简历证据；②"……如果切块和混合检索不是你做的，那你在该RAG项目中具体交付了什么？"——二次施压追问真实贡献边界；③"既然你提到加缓存，那在 AI 后端做缓存重建时，如果多个实例同时发现缓存失效并并发回源，你会用什么机制保证只有一个实例去重建……？"——承接候选人原话"加缓存"并结合分布式锁考点。三者均精确针对回答漏洞且引用简历/题库证据（anchor 5）。
+- **Progress Notes**（实现要点存档）:
+  - `app/agent/state.py`：InterviewState（TypedDict，纯 JSON 类型，直接作为 Task 6 save_state 快照）；initial_state 工厂。
+  - `app/agent/graph.py`：START 路由器实现断点恢复（未问候→greeting / pending_answer→receive_answer / finish_requested→final_evaluation / done→END），不依赖 LangGraph 内置 checkpointer；拓扑 greeting→ask_question→END / receive_answer→assess_answer→{followup | ask_question | final_evaluation}→report→END。
+  - 出题/追问证据约束：AdaptiveRetriever 召回 6 取 3（used_evidence_ids 去重，耗尽允许复用）；`_parse_question` 校验 evidence_ids ⊆ 召回集、空则兜底 Top-1；LLM/检索失败三级兜底（模板题→无证据项目题）。研判 `_parse_assess` 失败默认 good 放行，面试不中断。
+  - 副作用约定：`_say()` 统一落消息 + 发 SseEvent（stage + 12 字分段 token）；report 节点 save_report + 会话置 finished + done 事件；每次图执行结束 save_state。
+  - 报告生成器可注入（ReportGenerator 协议）；默认 default_report_generator 产出 schema 合法骨架（Task 8 以 LLM 结构化生成替换）。event_sink 预留（Task 9 接 SSE 队列）。
+  - MAX_FOLLOWUPS=2 同题追问上限；followup 文本直接取研判输出的 followup_question（研判 prompt 含证据，追问 grounded）。
+- **Priority**: high
+- **Depends On**: Task 5, Task 6
+- **Description**:
+  - 定义面试状态（简历/JD 上下文、题库证据、历史问答、当前阶段、已问问题去重、每题追问计数、剩余题数、候选人画像）。
+  - 实现节点与边：`greeting → ask_question（AdaptiveRetriever 取证据 + 结构化出题）→ receive_answer → assess_answer → conditional(追问/下一题/结束) → final_evaluation → report`；条件路由基于回答质量与轮次计数；同题追问 ≤ 2 轮、总题数可配。
+  - 出题/追问 prompt 要求必须结合至少一条 RAG 证据（简历项目或题库），问题以结构化对象输出（题干、考察点、引用证据 id）。
+  - 每步状态落库（checkpoint），支持传入 thread/session id 从中断点继续。
+- **Acceptance Criteria Addressed**: AC-5
+- **Test Requirements**:
+  - `rule` TR-7.1: 用录制/mock 的 LLM 响应跑完整图，断言节点序列包含 greeting→ask→answer→assess→follow_up（至少一次）→final→report，且追问不超过 2 轮、题数达到配置即结束。
+  - `rule` TR-7.2: 中途"中断"（仅落 checkpoint）后用同一 session_id 恢复，历史与剩余轮次正确。
+  - `rubric` TR-7.3: 追问相关性；scale 1-5；anchors 1=模板化无视回答，3=部分承接，5=精确针对回答漏洞且引用简历/题库证据；threshold >= 4；evidence=3 个真实追问样例人工评查。
+
+## Task 8: 多维评分与报告生成
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-8.2：`tests/test_report.py` 6 个 mock 用例通过——首次残缺 JSON 第二次合法 → 重试成功且第二次请求携带"未通过校验"修正反馈；维度缺失（4/5）→ 重试；分数越界（9）→ 重试；连续 3 次垃圾输出 → 抛 `ReportGenerationError("连续 3 次未能从 LLM 获得合法报告…")` 且 reports_dir 零文件（脏数据不落盘）；成功路径断言 prompt 携带问答原文与知识来源、Markdown 落盘含五维度/改进建议/推荐知识点。
+  - TR-8.1 真实联调（2026-10-16，真实 DeepSeek + FakeAdaptive 固定证据，2 题完整面试含真实 greeting/出题/研判）：报告通过 schema 校验——五维度齐全、分数均在 1-5、每维度 evidence 非空、highlights/weaknesses/suggestions 非空；真实输出维度分 {岗位匹配度:1, 基础知识:1, 项目深度:1, 表达逻辑:1, 问题解决:1}（候选人兜底式回答，评分诚实）；推荐知识点 source 精确回链 `qa_backend.md`；Markdown 写入 `{session_id}.md` 含"岗位匹配度"。
+  - 联调中发现并修复两个真实问题：①候选人表现弱时模型诚实返回 `highlights: []` 违反 min_length=1 且同 prompt 重试无效 → prompt 明确"禁止空数组"+ 重试时把非法输出与校验错误追加为上下文定向修正；②推荐知识点 source 曾整行复制 → prompt 收紧为"只填来源文件名"。
+  - 基线：`pytest -q -m "not integration"` 78 passed；`ruff check app tests` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/agent/report.py`：`LLMReportGenerator`（符合 graph.ReportGenerator 协议，`build_report_generator(settings, llm)` 装配 Markdown 落 `data/reports/`）；`_build_messages` 输入全部问答记录（含研判）+ 按 chunk_id 去重的知识来源 + evaluation_summary；`_parse_report` 注入 session_id/generated_at（不信任模型）+ Pydantic 校验 + 五维度精确匹配检查；`render_report_markdown` 渲染维度表格/评分依据/亮点/不足/建议/推荐知识点（表格单元转义 `|` 与换行）；失败重试 ≤2 次（共 3 次），LLM 调用异常（401 等）直接抛领域异常不占重试额度。
+  - `app/agent/graph.py` 增量：出题/追问节点的 question dict 增加 `evidence` 快照（chunk_id/source/heading/score/text[:200]），供报告引用知识来源，state 保持纯 JSON 可快照。
+  - `default_report_generator` 骨架保留为缺省，Task 9 装配时注入 LLM 生成器。
+- **Priority**: high
+- **Depends On**: Task 7
+- **Description**:
+  - 评分维度：岗位匹配度、基础知识、项目经验深度、表达与逻辑、问题解决能力（各 1-5 分 + 评语）；综合总分与结论。
+  - 每个维度评分必须引用具体问答对/证据；输出亮点、不足、改进建议（可执行）、推荐复习知识点（回链题库 chunk 来源）。
+  - 使用结构化输出（function calling / JSON mode + Pydantic 解析 + 失败重试 ≤2 次）；生成 Markdown 与结构化 JSON 两版报告并持久化。
+- **Acceptance Criteria Addressed**: AC-6
+- **Test Requirements**:
+  - `rule` TR-8.1: 真实完成一场面试后报告通过 Report schema 校验：五维度齐全、分数在 1-5、每维度有证据引用、改进建议非空。
+  - `rule` TR-8.2: mock LLM 首次返回残缺 JSON、第二次合法，断言重试后成功；连续非法时返回明确错误而非脏数据。
+
+## Task 9: FastAPI 接口与 SSE 流式
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-9.1：`test_full_interview_chain_over_sse` 通过——multipart 创建会话（201，SessionRecord 字段与 schemas 一致）→ 空 content 触发开场（SSE 逐行解析：stage(opening) → token 流 → stage(question, round=1)，Q1 token 拼接完整）→ 两轮问答（末轮 SSE：stage(answer) → stage(scoring) → done(completed)）→ GET /sessions/{id} 状态 finished、消息角色序正确、出题消息带 ev-1 证据引用 → GET /report 通过 InterviewReport 校验（五维度齐全、分数 1-5、证据非空）且 Markdown 落盘。`test_finish_endpoint_early_and_idempotent` 覆盖提前结束（未作答出报告）与幂等返回。
+  - TR-9.2：5 个错误分支用例通过——.exe 上传 400 INVALID_FILE_TYPE、超上限（测试置 8 字节）413 FILE_TOO_LARGE、缺 track 422 VALIDATION_ERROR、不存在会话四个端点（GET / GET report / finish / messages）全部 404 SESSION_NOT_FOUND、已创建未生成 404 REPORT_NOT_FOUND；响应体均为统一结构 `{"error": {code, message, details}}`。
+  - TR-9.3：`test_upstream_401_degrades_then_chinese_error_event` 通过——SSE 首事件为 stage(opening)（首字节即阶段事件）；上游全 401 时 greeting/出题图内降级（兜底开场白 + 证据模板题"考点1"）正常下发，报告节点 AuthenticationError 转为 error 事件（code=UPSTREAM_AUTH_FAILED，message 含"API Key 无效或已过期（HTTP 401）…请检查 .env"中文排查建议）+ done(error)，脏报告不落库。
+  - 真实全链路（2026-10-16 integration，真实 Qdrant 73 chunks + SiliconFlow + DeepSeek，`with TestClient` 持久循环）：创建 → SSE 开场 → 空泛作答连续触发真实追问 → done → 报告校验通过；两题均带真实证据来源（sample_resume_zh.md / ai_backend_jd_zh.md / ai_backend_jd_en.md / ai_backend_qa_bank.md）；自适应检索真实生效——首轮 top_score=0.6571 被判不足，改写 2 轮提升至 0.9506。
+  - 联调发现并修复一个真实问题：TestClient 非上下文管理器模式每请求新建事件循环，跨请求复用的 AsyncOpenAI/httpx 连接池报 "Event loop is closed"（曾致研判默认放行、第二题证据丢失）；集成测试改用 `with TestClient(app)` 持久 portal（生产 uvicorn 单事件循环无此问题）。
+  - 基线：`pytest -q -m "not integration"` 86 passed；`ruff check app tests` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/api/deps.py`：ServiceContainer（settings/repo/store/embedder/reranker/retriever/adaptive/llm/report_generator）+ build_services 生产装配 + get_services 惰性装配（首请求缓存 app.state.services；测试直接赋值注入 mock 容器；健康检查不触发 Qdrant 文件锁）。
+  - `app/api/sessions.py`：POST /sessions（multipart：track/num_questions/candidate_name/resume?/jd?；先校验后建会话避免孤儿；上传存 data/uploads/{session_id}/ 后经 ingest_loaded_document 摄入，source 含 session_id，摄入后 retriever.refresh_bm25()）；POST /sessions/{id}/messages（asyncio.Queue 桥接 event_sink → StreamingResponse：content 空且未开始 → start、否则 submit_answer、已开始空 content 安全无操作；异常 → error 事件 + done(error)；自记 first_event_ms）；POST finish（JSON，幂等）；GET 会话详情 / 报告。
+  - `app/api/errors.py`：ApiError + 全局处理器（ApiError / HTTPException / RequestValidationError 422 / ModelProviderError 502 / ReportGenerationError 502 / Exception 500），统一 ErrorResponse 结构。
+  - `app/agent/graph.py` 增量：`_say` token 事件仅 interviewer 发（候选人回显由前端本地渲染）；final_evaluation 节点发 stage(scoring) 事件（无消息体，供前端阶段徽标）。
+  - `app/main.py`：挂 sessions 路由 + register_exception_handlers + 访问日志中间件（method/path/status/total_ms）；路由签名统一 Annotated 风格（规避 ruff B008）。
+  - SSE 错误码约定：UPSTREAM_AUTH_FAILED / UPSTREAM_ERROR / REPORT_GENERATION_FAILED / INVALID_STATE / INTERNAL_ERROR。
+- **Priority**: high
+- **Depends On**: Task 7, Task 8
+- **Description**:
+  - 路由：`POST /sessions`（上传/选择简历+JD、岗位方向、题数）、`POST /sessions/{id}/messages`（SSE：阶段事件 + token 流 + done/error）、`POST /sessions/{id}/finish`（提前结束并出报告）、`GET /sessions/{id}`（状态与历史）、`GET /sessions/{id}/report`、`GET /health`。
+  - 统一错误响应（code/message/details）与全局异常处理；上传校验（PDF/MD/TXT，≤10MB）；接入结构化日志中间件（分段计时：检索/首 token/总耗时）。
+  - 上传文档自动摄入临时会话知识库（source 关联 session）。
+- **Acceptance Criteria Addressed**: AC-7, AC-5, AC-3
+- **Test Requirements**:
+  - `rule` TR-9.1: TestClient 集成测试覆盖创建→两轮问答（SSE 事件可逐行解析出 stage/token/done）→结束→报告全链路；所有响应字段与 schemas 一致。
+  - `rule` TR-9.2: 错误分支测试：未上传合法文档、发送超限文件、对不存在会话发消息，均返回统一错误结构与合理状态码。
+  - `rule` TR-9.3: SSE 首字节包含阶段事件；模拟上游 401 时 error 事件携带可读中文说明。
+
+## Task 10: Streamlit 三页式前端
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-10.1（字段逐一核对 checklist，代码评审）：前端读取的全部字段均来自既有契约，无自造/魔法字段——`/health`：status、version、config.{deepseek_configured,deepseek_model,siliconflow_configured,embedding_model,reranker_model,qdrant_mode,qdrant_url,langfuse_enabled}（与 `settings.config_status()` 逐键对齐）、components.qdrant.{status,mode,detail}；`POST /sessions`→SessionRecord：session_id/track/num_questions/candidate_name/status/created_at/updated_at；`GET /sessions/{id}`→SessionDetailResponse：session（同上）+ messages[].{role,content,stage,evidence[].{chunk_id,source,heading,score}}；SSE data：StageEventData.{stage,round}、TokenEventData.content、ErrorEventData.{code,message}、DoneEventData.reason；InterviewReport：session_id/dimensions[].{dimension,score,evidence,comment}/highlights/weaknesses/suggestions/recommended_topics[].{topic,source,reason}/generated_at。`tests/test_frontend.py` 的桩数据严格按上述契约构造，三页渲染均通过 → 字段名不符即断言失败。
+  - TR-10.2（浏览器走查，示例数据 + 真实后端 + 真实 LLM）：开始页三指标实测 服务状态 healthy / DeepSeek 已配置 / SiliconFlow 已配置，导航、知识库来源、岗位方向、计划题目数、开始面试按钮齐全；创建会话（计划题目数=1）→ 面试页自动开场，问候语与第一题流式渲染，助手消息下方出现「证据来源：」chips，状态框标签显示「当前阶段：出题（第 1 题）」；提交约 142 字 RAG 相关回答后收到**真实追问**，共完成 3 轮问答（含 2 次追问）；报告页渲染 plotly 雷达图（五维度）、维度得分进度条、评分依据展开组、亮点/不足/改进建议清单、推荐复习知识点表格，「下载报告（Markdown）」按钮经浏览器确认存在于页底。控制台无 Streamlit 异常堆栈。
+  - 错误提示场景：`tests/test_frontend.py::test_sse_error_event_shows_banner_with_code` 通过——SSE error 事件经 st.error 透出后端原文 message（含「API Key 无效或已过期」「401」）与「错误码：UPSTREAM_ERROR」，且页面不崩溃（无 exception）。后端 401→中文 error 事件由 TR-9.3 覆盖，前端渲染由此用例闭环。（说明：计划中的「浏览器内填写错误 key」实时走查因该浏览器环境卡死未能完成，故错误场景以确定性 AppTest 渲染测试 + 后端 SSE 测试为证据，未作臆测。）
+  - 走查发现并修复 2 个真实问题：①「开始面试」抛 `StreamlitWidgetAlreadyInstantiatedError`——同轮内在导航组件（key="page"）实例化后改写其 session_state，改为「请求页（requested_page）→ 下一轮开头生效」模式；②`st.plotly_chart/dataframe` 使用 `use_container_width` 触发弃用告警（Streamlit 1.66），改用 `width="stretch"`，修复后服务端日志零告警。
+  - AC-8 自评：4/5（阈值 ≥4 达标）。扣分项：浏览器视口的整页截图工具在该环境不可用（走查证据以元素树快照 + 断言为准），且实时错误场景未能用浏览器走查（已用确定性测试替代）。
+  - 基线：`pytest -q -m "not integration"` 89 passed（新增 3 个前端用例）；`ruff check app tests frontend` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `frontend/app.py`：入口与导航（`st.radio(key="page")`）；页面跳转统一走 `requested_page`，在主函数开头（组件实例化前）应用；侧边栏含 API 地址与可选密钥（session_state 内存保存、密码框、不落盘）。
+  - `frontend/api_client.py`：``BackendClient`` 严格按 schemas 解析——multipart 创建、SSE 逐事件 yield（event/data 行解析）、统一错误解析 `{"error":{code,message,details}}` → ``ApiClientError``（透出中文原文），可选密钥经 `X-DeepSeek-Key`/`X-SiliconFlow-Key` 请求头传递。
+  - 后端新增（支撑 FR-9 页面填 key）：`app/api/deps.py` 识别两个请求头，按密钥组合装配覆盖容器（复用基础容器的 QdrantStore/SessionRepository，避免重复打开文件锁），按密钥组合缓存于 `app.state.override_cache`；密钥仅存内存、不入日志。
+  - `frontend/views_start.py`：健康指标 + 内置示例/上传简历·JD（pdf/md/txt，超限与类型错误由后端统一错误透出）+ 方向/题数/称呼 → 创建会话。
+  - `frontend/views_interview.py`：`run_turn` 手动消费 SSE——st.status 随 stage 事件更新（开场/出题/追问/评分），token 累积渲染（带光标），error 事件写 session_state 供顶部横幅透出，done 事件更新状态；流结束 `st.rerun()` 以服务端历史重绘（证据 chips 完整）；首次进入自动开场（`auto_started` 防重跑）；`st.chat_input` 提交 + 提前结束按钮（页面级 spinner，防重复提交）。
+  - `frontend/views_report.py`：plotly 雷达图（0-5 分径向轴）+ 维度分条与进度条 + 评分依据 expander + 亮点/不足/建议 + 推荐知识点表格（含来源列）+ 本地生成 Markdown 下载（字段同 Report，文件名 interview_report_{sid8}.md）。
+  - `frontend/ui_common.py`：阶段文案映射（与 InterviewStage 对应）、消息渲染（角色气泡 + 阶段徽标 + 证据来源 chips）、错误横幅（`错误码：` 后缀）。
+  - `tests/test_frontend.py`：`streamlit.testing.v1.AppTest` 真实执行 `frontend/app.py`，仅替换 `BackendClient` 类方法为桩；覆盖开始页渲染与开场、错误事件横幅、报告页图表/证据/表格/下载按钮。
+- **Priority**: high
+- **Depends On**: Task 9
+- **Description**:
+  - 开始页：API 连通状态（使用服务端配置或页面填写 key，仅本次会话保存于 session_state，不落盘）；上传简历/JD 或勾选内置示例；岗位方向与题目数；开始面试。
+  - 面试页：对话式 UI，st.write_stream/手动消费 SSE 实现流式；展示阶段徽标（检索中/出题/追问/评分）与证据来源 chips；可提前结束。
+  - 报告页：plotly 雷达图 + 维度分条 + 评语 + 证据问答展开 + 改进建议清单 + 推荐复习链接；提供报告下载（Markdown）。
+  - 所有 API 错误通过 st.error/st.toast 透出原文 message；页面级 loading 与禁用防重复提交。
+- **Acceptance Criteria Addressed**: AC-8
+- **Test Requirements**:
+  - `rule` TR-10.1: 前端 HTTP 客户端字段与 Task 6 schemas 逐一核对一致（代码评审 checklist），无硬编码魔法字段。
+  - `rubric` TR-10.2: 浏览器走查完整流程（示例数据，真实后端），按 AC-8 anchors 评分 >= 4；覆盖一次错误提示场景（如错误 key）；evidence=走查截图清单与控制台日志。
+
+## Task 11: RAGAS 评测集与回归脚本
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-11.1（一键运行 + 评测集 ≥40 且四类齐全）：`uv run python scripts/run_eval.py` 一键完成「校验评测集 → 43 条全量检索+受控生成 → RAGAS 评判 → 写 Markdown+JSON 报告 → 与基线对比 Δ」全链路，43/43 执行成功、0 执行错误。评测集 `data/eval/eval_dataset.json` 共 **43 条**：简历题 10、JD 匹配题 10（中文 6 + 英文 4，验证跨语言检索）、八股题 16（Python/后端/LLM/RAG-Agent 均匀抽自 Q01-Q40）、题库外诱导题 7（CEO 星座、量子物理、明日天气、刷好评脚本、简历薪资、JD 设备型号、背诗）；每条含 question / 原子化 ground_truth 要点 / expected_sources / expected_kb_types；加载器 `app/eval/dataset.py` 强制校验总数 ≥40、四类最低条数（8/8/16/6）、id 唯一、source 文件真实存在、oos 题不得期望命中来源（离线测试覆盖全部拒绝分支）。
+  - TR-11.2（真实全量评测，2026-10-16 15:19，adaptive=True/top_k=6/评判=deepseek-chat/embedding=BAAI/bge-m3）：**faithfulness=0.985（阈值 .85）、context_recall=1.000（阈值 .80）、answer_relevancy=0.872（阈值 .85），三项全部达标**；context_precision=0.912（观察项，未设硬门槛）。分类别：resume 1.000/0.950/1.000/0.814，jd 1.000/0.820/1.000/0.894，qa 0.967/0.946/1.000/0.895。检索侧：期望来源命中率 **100%**（36/36），平均上下文 6.0 条、自适应平均 1.65 轮；诱导题拒答率 **7/7=100%**（目标 ≥80%），非诱导题误拒答率 **0%**；144 个 RAGAS 评判单元格零缺失。evidence 文件：`data/eval/reports/eval_20261016_151909.{json,md}` 与首版基线 `data/eval/baseline.json`（同内容定稿）。另用 `--limit 5` 实测基线对比：报告正确输出各项 Δ（如 faithfulness Δ=-0.025、answer_relevancy Δ=-0.053），门槛不过时进程退出码=2，可作回归信号。
+  - 首版基线即达标，**无需回 Task 4/5 调参**；报告仍如实列出 2 个低分样例（resume-01：答案漏掉"计算机科学与技术"专业致 answer_relevancy=0.533、相关证据排第 2 位致 context_precision=0.5；jd-en-03：answer_relevancy=0.622），作为后续 prompt/精排优化的观察项。
+  - AC-9 自评：5/5（锚点：三项门槛指标均超阈值且产出基线报告 → 记 5）。
+  - 基线：`pytest -q -m "not integration"` **113 passed**（新增 `tests/test_eval.py` 24 例：评测集校验/拒答规则/受控生成/管线组装容错/报告聚合与基线 Δ），`ruff check app tests scripts` All checks passed。
+- **Progress Notes**（实现要点存档）:
+  - `app/eval/dataset.py`：pydantic 模型 `EvalQuestion/EvalDataset` + `load_dataset` + `validate_dataset`（错误聚合）；类别→kb_type 过滤、oos 期望拒答等派生属性。
+  - `app/eval/generator.py`：严格接地的受控 RAG 问答 prompt（只依据资料、无依据必须说"知识库未提及/无法回答"、违规请求礼貌拒绝、空上下文给显式提示）——这是诱导题拒答与 faithfulness 评判的前提；生成走 `DeepSeekChatClient.chat(purpose="eval", temperature=0.1)`，不复用面试状态机的出题 prompt。
+  - `app/eval/refusal.py`：规则法拒答判定（确定性、可单测）。两级判据：强直接短语（无法回答/不能协助/不在服务范围/违反平台规则…）前文 12 字内无第三人称或描述性标记（"模型拿到只言片语无法回答""让模型表达'知识库未提及'"不算拒答）；通用线索仅在 ≤160 字短答案生效。首轮全量跑发现 2 个误报（Q23/Q32 答案在正文中描述拒答策略），据此修正后非诱导题误拒答率归零，真实 7 条拒答全部仍命中。
+  - `app/eval/runner.py`：`AdaptiveRetriever`（默认，生产路径）/`Retriever`（`--no-adaptive` 消融）双兼容的批跑管线，信号量并发（默认 4），chunk_id 去重组装 contexts、保留来源/轮数/rerank 分；单条异常捕获进 `error` 字段不中断整批。
+  - `app/eval/metrics_ragas.py`：ragas 0.4.3 适配踩坑——①collections 指标只接受"现代"封装，LLM 用 `ragas.llms.llm_factory`（instructor，注入指向 DeepSeek 的 `openai.AsyncOpenAI`，function calling 可用），embedding 用 `ragas.embeddings.embedding_factory("openai", model=bge-m3, client=<SiliconFlow AsyncOpenAI>, interface="modern")`，旧 `LangchainLLMWrapper`/`aevaluate` 均被拒（v1/v2 体系不兼容）；②v2 指标直接并发调 `Faithfulness/ContextPrecision/ContextRecall/AnswerRelevancy.ascore(**kwargs)`，逐单元格容错为 None；③instructor 默认 max_tokens=1024 导致 2 个长答案 faithfulness 评判截断缺失，显式提到 4096 后 144/144 单元格齐全。依赖固定：`ragas>=0.4.3,<0.5` + `langchain-community==0.4.1`（0.4.2 移除了 ragas 仍导入的 `langchain_community.chat_models.vertexai`）。
+  - `app/eval/report.py`：纯函数聚合（总体/分类别四项均值、来源命中率、拒答率、Δ）+ Markdown 渲染（门槛表/分类表/检索统计/诱导题明细/低分样例/失败样例），JSON 全量逐条落盘便于复盘。
+  - `scripts/run_eval.py`：argparse（--dataset/--output-dir/--baseline/--top-k/--limit/--category/--no-adaptive/--concurrency/--workers/--save-baseline/--quiet）；报告输出 `data/eval/reports/eval_YYYYMMDD_HHMMSS.{json,md}`，存在 `data/eval/baseline.json` 时自动载入对比；退出码 0=门槛通过、2=未通过、1=环境/数据集错误。注意 Qdrant local 模式文件锁与运行中的 uvicorn 互斥，评测期间需停后端。
+- **Priority**: medium
+- **Depends On**: Task 8
+- **Description**:
+  - 在 `data/eval` 构建 ≥40 条评测集：问题、ground_truth 要点、期望命中的 source/kb_type；覆盖简历题、JD 匹配题、八股题、题库外诱导题（验证拒答/重检索）。
+  - `scripts/run_eval.py`：批量跑检索 + 生成，调用 RAGAS（LLM/embedding 走 DeepSeek/SiliconFlow 适配器）计算 faithfulness、context_precision、context_recall、answer_relevancy，输出 Markdown + JSON 报告并与 `data/eval/baseline.json` 对比。
+  - 记录首版基线；若指标不达 AC-9 阈值，回到 Task 4/5 调参（改写策略、K 值、rerank）并复评。
+- **Acceptance Criteria Addressed**: AC-9
+- **Test Requirements**:
+  - `rule` TR-11.1: 评测脚本可一键运行并产出含四项指标的报告文件；评测集条数 ≥40 且四类覆盖齐全。
+  - `rubric` TR-11.2: faithfulness ≥ 0.85、context_recall ≥ 0.8、answer_relevancy ≥ 0.85；按 AC-9 映射评分 >= 4；evidence=报告与基线文件。
+
+## Task 12: 可观测性（Langfuse 可选 + 本地降级）
+- **Status**: `completed`
+- **Completion Evidence**:
+  - TR-12.1（无 key 真实完整链路 → JSONL 关键 span 齐全）：以真实服务（真实 Qdrant + SiliconFlow + DeepSeek）经 HTTP 跑完一次面试（opening→追问→finish），仓库 `logs/traces.jsonl` 落盘证据：单会话 40 条记录、单 `trace_id`（=`session_id`）、`status=error` 计数 0，覆盖 node.greeting/ask_question/receive_answer/assess_answer/followup/final_evaluation/report、`llm.chat`（purpose/model/json_mode/prompt_tokens/completion_tokens/finish_reason/duration_ms）、`rewrite.multi_query`+`rewrite.hyde`、`retrieval.rerank`、`retrieval.summary`（vector_hit_count/bm25_hit_count/fused_count/rerank_candidate_count/returned/top_score）、`adaptive.verdict`+`adaptive.summary`。真实样本：`llm.chat` 1242ms/prompt_tokens=46/completion_tokens=19；`node.ask_question` 10050ms；`retrieval.summary` vector=26、bm25=20、fused=35、rerank 候选 24→返回 6、top_score=0.652；`adaptive.verdict` sufficient=false 并给出 improved_query。离线用例 `test_full_interview_writes_all_key_spans`（真实图 + 真实检索管线 + mock LLM）对同一批 span/层级/耗时字段做断言。
+  - TR-12.2（有 key 上报、关闭后业务无差异）：
+    - 业务无差异：`test_langfuse_enabled_keeps_business_behavior_identical` 分别以"关闭上报"与"开启上报（假 Langfuse 后端）"各跑一次完整面试，断言对话消息、会话状态、最终报告逐字一致，且开启时按 `session_id` 聚合出 `name=interview:{session_id}` 的 trace 并含图节点/检索 span。
+    - 上报协议：`test_langfuse_sink_posts_trace_and_spans_to_ingestion_api` 用真实 langfuse SDK（2.60.10）上报到本地假 `POST /api/public/ingestion` 端点，断言 `trace-create`（id/name=interview:{sid}/sessionId）、`span-create`（名称、metadata=统一字段）、`span-update`（`level=ERROR`/`statusMessage`）按 Langfuse 协议送达——同名 trace/span 因而可在 UI 按 trace 名与 session 检索。
+    - 降级：未安装 langfuse 或 key 缺失时仅写本地 JSONL（`test_build_tracer_degrades_when_langfuse_missing` / `test_build_tracer_without_keys_uses_jsonl_only`），观测 sink 异常仅告警不影响业务。
+  - 质量基线：`pytest -q -m "not integration"` **122 passed**（Task 12 新增 `tests/test_observability.py` 9 例）；`ruff check app tests scripts` All checks passed；`pytest -m integration tests/test_api.py::test_real_full_chain_via_api` 1 passed（验证 SSE 与 finish 入口的埋点绑定未破坏既有链路）。
+  - AC-10 按映射自评：**5/5**（无 key 结构化日志完整、mock 面覆盖 all key spans；有 key 同名 trace/span 协议级可达；两种模式业务逐字一致）。
+- **Progress Notes**（实现要点存档）:
+  - `app/observability/tracer.py`：`SpanRecord` 统一字段（name/trace_id/trace_name/session_id/span_id/parent_id/kind/started_at/duration_ms/status/error/fields）；`Span` 同时支持 `with`/`async with` 并提供 `set(**fields)` 补充运行期信息；contextvar 记录当前 span 以推断 `parent_id`（JSONL 可重建调用树）；`JsonlSink` 追加写且线程安全；`get_tracer()` 未设置时返回空实现（零副作用、不抛异常）；`traced` 装饰器对同步/异步函数通用；任一 sink 失败仅 warning，绝不中断业务（观测为旁路）。
+  - `app/observability/langfuse_sink.py`：延迟导入 langfuse；`SpanRecord → trace().span().end(level/status_message)` 映射，metadata 携带 span_id/parent_id/kind/session_id/duration_ms 与业务字段；`close()` 执行 flush+shutdown 释放后台消费线程。
+  - `build_tracer`：本地 JSONL 恒开；Langfuse 三件套齐备且依赖可用时并行上报；初始化失败自动降级（不阻断业务）。
+  - 埋点位置（全部以上下文管理器/装饰器实现，不改函数签名与业务逻辑）：`llm.chat`/`llm.stream_chat`（purpose/model/json_mode/tokens/finish_reason/chunks/chars）；`retriever` 的 `rewrite.multi_query`、`rewrite.hyde`、`retrieval.rerank`、`retrieval.summary`(event)；`adaptive.verdict`/`adaptive.summary`(event)；图节点 `@traced`（node.greeting/ask_question/receive_answer/assess_answer/followup/final_evaluation/report）。
+  - `app/api/sessions.py`：SSE 流与 `finish` 入口绑定 tracer（`trace_id=session_id`），`finally` 中 `reset_tracer` + `tracer.close()`；未配 key 时全程只写本地 JSONL。
+  - `pyproject.toml`：`obs` 可选组固定 `langfuse>=2.50.0,<3`（`LangfuseSink` 基于 v2 的 `trace().span()` API，v3 改为 OTel 接口）。
+  - `tests/conftest.py`：autouse 夹具把 `LOG_DIR` 重定向到用例临时目录，避免离线测试把观测 JSONL 写进仓库 `logs/`。
+  - 注意：一次会话聚合为一个 trace（`trace_id=session_id`）；`logs/*.jsonl` 已在 `.gitignore` 忽略，不入库。
+- **Priority**: medium
+- **Depends On**: Task 9
+- **Description**:
+  - `app/observability/`：统一 tracer 接口；配置 Langfuse key 时上报 trace/span（session 维度：改写、双路召回计数、rerank、自评结论、图节点、LLM 调用与耗时）；未配置时写本地 JSONL 结构化日志（同字段结构）。
+  - 在 RAG 管线与图节点埋点（不侵入业务逻辑，上下文管理器/装饰器实现）。
+- **Acceptance Criteria Addressed**: AC-10
+- **Test Requirements**:
+  - `rule` TR-12.1: 无 key 运行完整测试链路后，JSONL 日志含一次面试的全部关键 span 字段。
+  - `rule` TR-12.2: 配置有效 Langfuse key（集成测试/手工）时同名 trace 可在 Langfuse UI 查到；关闭后业务无任何行为差异（测试全绿）。
+
+## Task 13: Docker 化与云服务器部署
+- **Status**: `completed`（全部部署产物已交付并通过离线校验；TR-13.1/TR-13.2 需 Docker/云服务器环境实测，本机无 Docker Desktop 且 WSL 无发行版，无法自验，已列明待用户实测项）
+- **Completion Evidence**:
+  - **部署产物**：`Dockerfile`（多阶段：builder 用 uv 0.13.0 执行 `uv sync --frozen --no-dev --no-install-project --extra obs`；runtime 复制 `.venv`，非 root 用户 `appuser` UID/GID 1000；一个镜像由 compose 以不同 command 分别启动 api 与 streamlit）；`docker-compose.yml`（qdrant `v1.19.2` + 命名卷 `qdrant_storage`、api、streamlit 三服务，均带 healthcheck，`depends_on: condition: service_healthy` 顺序 qdrant→api→streamlit，密钥仅经 `env_file: .env` 注入）；`.dockerignore`（排除 `.env*`、`.venv`、`__pycache__`、运行时产物 `data/db`、`logs` 等）；`deploy/deploy.sh`（含 `--help/--no-build/--skip-ingest`，检查 Docker→引导 `.env`→构建启动→轮询三容器 healthy→`check_models.py` 验活→`ingest_kb.py` 摄入→打印公网 `IP:8501`）；README 部署章节（规格/安全组/安装/一键部署/手动等价命令/验证达标/Windows 用法/更新日志备份）。
+  - **离线等价校验（本机无 Docker，以结构断言 + 解析 + 静态检查替代运行时验证）**：compose 结构断言 12 项通过（三服务、共用镜像、`QDRANT_MODE=server`、内网 `API_BASE_URL=http://api:8000`、依赖顺序、三服务 healthcheck、命名卷、qdrant 无 `ports`、api 仅绑 `127.0.0.1:8000`、8501 发布、密钥仅 env_file）；Dockerfile 断言 3 项通过（多阶段、非 root、关键 flag）且全部 COPY 宿主源存在；`.dockerignore`/`.gitignore` 断言 5 项通过；`shellcheck -S style deploy/deploy.sh` 零告警。
+  - **依赖同步命令有效性**：`uv sync --frozen --no-dev --no-install-project --extra obs --dry-run` 解析成功（"Would download 1 package / Would install 86 packages"，含 `langfuse==2.60.10`、`streamlit==1.66.0`，且项目自身未被安装），证明锁定文件与 obs extra 解析无误；此前一次完整下载复现因 **`pyarrow==26.0.0` 下载网络超时**（`client error (Connect)` / `operation timed out`）退出码 2，属环境网络问题而非命令问题。
+  - **密钥安全**：仓库可见文件（按 ignore 规则排除 `.env`/`.venv` 等后）执行 `sk-[A-Za-z0-9]{16,}` 模式扫描零命中；`.env.example` 中原先误入的真实 Key 已改为 `sk-your-deepseek-key-here` / `sk-your-siliconflow-key-here` 占位符。
+  - **TR-13.1 未自验**（本机无 `docker.exe`、WSL 无发行版）：待在有 Docker 的环境执行 `docker compose up -d`，确认三容器 `healthy`、`curl 127.0.0.1:8000/health` 返回 200、浏览器打开 8501。
+  - **TR-13.2 待用户实测**：脚本与 README 已交付，待用户于云服务器执行 `bash deploy/deploy.sh` 后提供公网 `IP:8501` 完成一次完整模拟面试的走查证据。
+  - **TR-13.3 已完整验证（2026-10-16，本机 `git init` 后实测）**：`git ls-files` 共 **100 个受跟踪文件，其中无 `.env`**（仅 `.env.example`）；`git check-ignore -v .env` 显示被 `.gitignore:2:.env` 规则忽略；对被跟踪文件逐文件执行 `sk-[A-Za-z0-9]{16,}` 模式扫描 → **0 命中**，无真实密钥入库。`.env` 为本地私有（含 2 个真实 Key，已确认被 git 忽略、不入库）。
+- **Progress Notes**（实现要点存档）:
+  - 命名卷首次创建时继承镜像内目录属主 → 非 root `appuser`(UID 1000) 无需启动期 `chown` 即可写卷。
+  - `--no-install-project`：若把项目装进 site-packages，`settings.py` 的 `BASE_DIR` 会指向 site-packages，导致 `.env` 与 `data/` 相对路径解析错位，故项目以 `/app` 源码直接运行、不安装自身。
+  - Qdrant 默认无鉴权 → 不发布 6333 端口；api 端口仅绑 `127.0.0.1:8000`（前端走容器内网访问），公网唯一入口 8501。
+  - qdrant healthcheck 依据其镜像 entrypoint 为 `#!/usr/bin/env bash`（base `debian:12-slim`，经官方 Dockerfile 佐证）→ 用 bash 内建 `/dev/tcp` 探 6333，不依赖镜像内是否有 curl/wget；api/streamlit 用镜像自带 python 标准库探 HTTP 健康端点。
+  - 镜像只装 `obs` extra、不含 eval(ragas) 依赖 → README 与 `deploy.sh` 中评测命令统一改为"本地开发环境 `uv sync --extra eval` 后运行"，避免给出必然失败的命令。
+- **Priority**: high
+- **Depends On**: Task 10, Task 12
+- **Description**:
+  - 多阶段 `Dockerfile`（uv 安装依赖、非 root 运行，后端与 Streamlit 同镜像不同启动命令）；`docker-compose.yml`：qdrant（带命名卷）、api（8000）、streamlit（8501），仅 `.env` 注入密钥，健康检查与依赖顺序（depends_on + healthcheck）。
+  - `deploy/deploy.sh`（Linux）：检查 Docker、拉取/构建、初始化 `.env` 引导提示、启动、运行 `check_models.py` 验活、打印公网访问地址；附 Windows 本地 `docker compose` 使用说明。
+  - README 部署章节：服务器规格/安全组端口/Docker 安装/部署/更新/日志查看/数据备份（Qdrant 卷 + SQLite 卷）。
+- **Acceptance Criteria Addressed**: AC-11, AC-1
+- **Test Requirements**:
+  - `rule` TR-13.1: 本地 `docker compose up -d` 三容器全部 healthy；容器内 `/health` 200，Streamlit 页面可打开。
+  - `rule` TR-13.2: 在用户云服务器执行部署脚本后，公网 `IP:8501` 可完成一次完整模拟面试（走查证据）。
+  - `rule` TR-13.3: `git ls-files` 不包含 `.env`；对镜像与仓库执行 key 模式扫描（sk- 等）无真实密钥命中。
+
+## Task 14: 测试收口、README 与面试讲解材料
+- **Status**: `completed`（文档与测试收口全部完成；TR-14.1 全项通过，TR-14.2 的"独立评审 ≥4"为人工评分项，待评审）
+- **Completion Evidence**:
+  - **TR-14.1 覆盖率**：`uv run pytest -q -m "not integration" --cov=app --cov-report=term-missing` → **128 passed, 4 deselected**（集成用例经 `-m integration` 分离）；总覆盖率 **89%**（branch 模式）。核心工具模块：`rag/chunker.py` 95%、`rag/fusion.py`(RRF) 100%、`agent/state.py` 100%、`api/schemas.py` 100%、`storage/db.py` 100% + `storage/qdrant_store.py` 81%、`rag/adaptive.py` 93%，另 `core/reranker.py` 补测后 100% —— 全部 ≥70%。
+  - **TR-14.1 静态检查**：`uv run ruff check app tests frontend` → **All checks passed**。
+  - **本轮新增测试**：`tests/test_model_clients.py` 新增 reranker 状态码映射参数化用例（404/400/429/500/302 → 统一领域异常）与空文档短路用例，共 +6 例，将 `core/reranker.py` 覆盖率由 67% 提升至 100%。
+  - **覆盖率配置**：`pyproject.toml` 新增 `[tool.coverage.run]`（`source=["app"]`、`branch=true`）与 `[tool.coverage.report]`（排除 `TYPE_CHECKING`/`pragma: no cover` 等），使 `--cov=app` 可复现。
+  - **README 重写**：补齐全部分区 —— 架构图（mermaid 组件与数据流 + LangGraph 状态机节点/条件边）、技术栈与选型表、快速开始（Windows 本地，默认 `QDRANT_MODE=local` 无需 Docker）、目录结构、接口表（6 个端点 + SSE 事件类型）、评测方法与当前基线指标、关键设计取舍（混合检索/RRF、两阶段 Rerank、Agentic RAG、LangGraph vs 裸 ReAct、Qdrant 双模式、可观测双后端）、测试与代码质量（含一键命令）、可观测性；并保留原部署章节（服务器规格/安全组/一键部署/验证达标/备份）。
+  - **TR-14.2 待评审**：README 步骤可被无背景者照做一项，已按"复制 .env.example → 填 key → check_models → ingest_kb → 启动后端与前端"给出单一路径；"由独立评审打分 ≥4"需第三方评审，未自评。
+  - **`docs/interview_talk.md`**：按「项目背景 → 核心难点 → 方案（数据/检索/自适应/编排/服务/可观测/评测分层）→ 量化效果 → 复盘」组织，并含 **10 个高频追问**应答要点（RRF vs 加权、改写噪声、重检索防死循环、中文分词、LangGraph 选型、RAGAS 坑、faithfulness 高而 relevancy 低、拒答与误拒答、状态持久化、性能与成本）。
+- **Progress Notes**（实现要点存档）:
+  - 覆盖率已在本任务前即达标，故**未为凑数而加测试**；仅对唯一低于 70% 的核心模块（reranker 67%）做针对性补测。
+  - `eval/metrics_ragas.py` 覆盖率 18%：该模块为 RAGAS 集成路径（需 `--extra eval` + 真实评委模型），由集成评测覆盖，非核心工具模块，故未纳入离线单测目标。
+  - README 内容存在重叠维护点：Task 13 部署章节被保留为 §10，新章节插在其前，避免重复书写。
+- **Priority**: medium
+- **Depends On**: Task 11, Task 13
+- **Description**:
+  - 补齐单元测试使核心工具模块（chunker、rrf、state 路由、schemas、storage、adaptive 循环）覆盖率 ≥70%；分离集成测试标记（`-m integration`）；CI 可选（至少提供 pytest 一键命令）。
+  - README：架构图（组件与数据流）、快速开始（Windows 本地）、部署上线、接口表、评测方法与当前指标、关键设计取舍（为何混合检索、为何 Agentic RAG、为何 LangGraph 而非裸 ReAct）。
+  - 整理 `docs/interview_talk.md`：按"项目背景→难点→方案→量化效果→复盘"的面试自述稿与 10 个高频追问应答要点。
+- **Acceptance Criteria Addressed**: AC-12, AC-9
+- **Test Requirements**:
+  - `rule` TR-14.1: `pytest -q` 全绿；覆盖率报告显示核心工具模块 ≥70%；`ruff`/基础静态检查无错误。
+  - `rubric` TR-14.2: 按 AC-12 anchors 由独立评审打分 >= 4；README 步骤可被无背景者照做成功。
+
+## 任务依赖与建议排期
+
+| 日 | 任务 |
+|---|---|
+| D1 | Task 1、Task 3（可并行起步，先跑通两个 API 验活） |
+| D2 | Task 2（示例数据 + 摄入） |
+| D3 | Task 4（混合检索核心） |
+| D4 | Task 5（Agentic RAG）、Task 6（持久化，部分并行） |
+| D5-D6 | Task 7（状态机） |
+| D7 | Task 8（报告）、Task 9（API/SSE） |
+| D8 | Task 10（前端） |
+| D9 | Task 11（评测）+ Task 12（可观测） |
+| D10 | Task 13（部署上线）、Task 14（收口） |

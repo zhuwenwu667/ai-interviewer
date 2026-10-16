@@ -1,0 +1,124 @@
+# AI 模拟面试官 - 三容器编排：qdrant（向量库）+ api（FastAPI）+ streamlit（前端）
+#
+# 使用：
+#   cp .env.example .env   # 填入真实 Key
+#   docker compose up -d --build
+#   docker compose exec api python scripts/check_models.py     # 三接口验活
+#   docker compose exec api python scripts/ingest_kb.py --rebuild  # 摄入知识库
+#
+# 密钥只通过 api/streamlit 的 env_file: .env 注入，构建镜像时不复制 .env，
+# 因此镜像内不含任何真实 Key。Linux 一键部署见 deploy/deploy.sh。
+
+name: ai-interviewer
+
+services:
+  # ----------------------------------------------------------------
+  # 向量数据库（带命名卷持久化）
+  # ----------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    restart: unless-stopped
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    # 不发布 6333 端口：Qdrant 默认无鉴权，暴露到公网等于开放向量库读写；
+    # api 通过内部网络 http://qdrant:6333 访问即可。需本机调试时临时加
+    # ports: ["127.0.0.1:6333:6333"]。
+    healthcheck:
+      # qdrant 镜像基于 debian（含 bash），用 bash 内建 /dev/tcp 探活 HTTP 端口，
+      # 不依赖镜像内是否有 curl/wget
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ----------------------------------------------------------------
+  # 后端 API
+  # ----------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-interviewer:latest
+    restart: unless-stopped
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env # 仅此注入密钥（DEEPSEEK_API_KEY / SILICONFLOW_API_KEY 等）
+    environment:
+      # 容器内网络与存储路径（显式覆盖 .env，避免沿用本地 local 模式配置）
+      QDRANT_MODE: server
+      QDRANT_URL: http://qdrant:6333
+      SQLITE_PATH: /app/data/db/interview.db
+      LOG_DIR: /app/logs
+      API_PORT: "8000"
+    volumes:
+      - app_db:/app/data/db # SQLite 会话/报告数据
+      - app_reports:/app/data/reports # 报告 Markdown 产物
+      - app_logs:/app/logs # 可观测性 JSONL
+    ports:
+      # 仅绑定宿主机回环：前端容器走内部网络访问 api，公网无需直连后端。
+      # 服务器上自检用 curl http://127.0.0.1:8000/health；确需公网暴露再改为 "8000:8000"。
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy # 等 Qdrant 就绪，避免启动期建集合失败
+    healthcheck:
+      # 镜像内只有 python，故用标准库探 /health（HTTP 200 即存活）
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ----------------------------------------------------------------
+  # Streamlit 前端（与 api 同一镜像，仅启动命令不同）
+  # ----------------------------------------------------------------
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-interviewer:latest
+    restart: unless-stopped
+    command:
+      - streamlit
+      - run
+      - frontend/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    env_file:
+      - .env
+    environment:
+      # 前端进程内以服务名访问后端（容器间走内部网络，不经过公网/宿主机）
+      API_BASE_URL: http://api:8000
+    ports:
+      - "8501:8501" # 公网唯一入口
+    depends_on:
+      api:
+        condition: service_healthy # 等 API 健康后再起前端
+    healthcheck:
+      # Streamlit 内置健康端点 /_stcore/health，就绪返回 200 + "ok"
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3).status == 200 else 1)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  qdrant_storage: # Qdrant 向量数据（备份对象）
+  app_db: # SQLite 会话与报告（备份对象）
+  app_reports: # Markdown 报告产物
+  app_logs: # 结构化 JSONL 日志

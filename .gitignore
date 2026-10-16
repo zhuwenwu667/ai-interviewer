@@ -1,0 +1,42 @@
+# ===== 密钥与环境配置（严禁提交） =====
+.env
+.env.*
+!.env.example
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ===== 虚拟环境 / uv =====
+.venv/
+venv/
+# 注：.python-version 需入库，用于固定开发与云端 Python 版本
+
+# ===== 测试与类型检查缓存 =====
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ===== 运行时数据（索引/数据库/日志）=====
+data/qdrant_storage/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+logs/*.jsonl
+logs/*.log
+
+# ===== 上传的临时文件 =====
+uploads/
+
+# ===== IDE / 系统 =====
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
