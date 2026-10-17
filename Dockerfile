@@ -16,11 +16,16 @@ FROM python:3.11-slim AS builder
 # PyPI 源：默认走清华 TUNA 镜像。实测国内服务器直连 files.pythonhosted.org
 # 仅约 70 KB/s（17.9MB 的 uv 包耗时 265s），依赖层要下 ~250MB，会拖到近一小时；
 # 换国内镜像可提升 5-10 倍。
+# 注意：uv.lock 里逐个包写死了官方 CDN 绝对直链，--frozen 会按该 URL 直接下载，
+# 只设 UV_INDEX_URL 不生效，还须在构建期改写直链主机（见下方 sed）。
 # 海外环境或需官方源时覆盖：
 #   docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple \
-#                --build-arg UV_INDEX_URL=https://pypi.org/simple .
+#                --build-arg UV_INDEX_URL=https://pypi.org/simple \
+#                --build-arg UV_MIRROR_HOST=files.pythonhosted.org .
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# 与 files.pythonhosted.org 路径结构一致的包文件直链主机
+ARG UV_MIRROR_HOST=pypi.tuna.tsinghua.edu.cn
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -40,6 +45,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 #   导致 .env 与 data/ 相对路径解析错位，故不安装项目本身。
 # README.md 被 pyproject 的 readme 字段引用，构建元数据需要它存在。
 COPY pyproject.toml uv.lock README.md ./
+# uv.lock 中每个包都内嵌了官方 CDN 绝对直链（https://files.pythonhosted.org/...），
+# --frozen 下 uv 直接按该 URL 下载、忽略 UV_INDEX_URL，国内直连会长时间卡住。
+# 国内镜像与官方文件字节一致、路径结构相同，故只改写主机名，不改 sha256 校验。
+RUN sed -i "s#https://files.pythonhosted.org/#https://${UV_MIRROR_HOST}/#g" uv.lock
 RUN uv sync --frozen --no-dev --no-install-project --extra obs
 
 # ============================================================
