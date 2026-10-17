@@ -57,6 +57,9 @@ def _radar_chart(dimensions: list[dict]) -> None:
             theta=[*labels, labels[0]] if labels else [],
             fill="toself",
             name="维度得分",
+            # 与 .streamlit/config.toml 的 primaryColor 保持一致，避免图表与主题撞色
+            line_color="#0F766E",
+            fillcolor="rgba(15, 118, 110, 0.22)",
         )
     )
     fig.update_layout(

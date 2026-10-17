@@ -34,31 +34,35 @@ _STYLES = """
 <style>
   .block-container { max-width: 1080px; padding-top: 1.8rem; padding-bottom: 3rem; }
 
-  .iv-hero { padding: 0.25rem 0 1.25rem; }
+  .iv-hero { padding: 0.35rem 0 1.4rem; border-bottom: 1px solid #EDF2F2; margin-bottom: 1.25rem; }
   .iv-hero-badge {
     display: inline-block; font-size: 0.75rem; letter-spacing: 0.02em;
-    color: #4F46E5; background: #EEF0FF; border-radius: 999px;
+    color: #0F5F59; background: #E6F2F0; border-radius: 999px;
     padding: 3px 10px; margin-bottom: 10px;
   }
   .iv-hero-title {
-    font-size: 1.85rem; line-height: 1.25; font-weight: 700;
-    margin: 0 0 0.5rem; color: #1F2430; text-wrap: balance;
+    font-size: 1.95rem; line-height: 1.25; font-weight: 700;
+    margin: 0 0 0.55rem; color: #142B2A; text-wrap: balance;
   }
   .iv-hero-sub {
-    font-size: 1rem; line-height: 1.65; color: #4B5563;
-    margin: 0 0 0.9rem; max-width: 46rem;
+    font-size: 1rem; line-height: 1.7; color: #4A5C60;
+    margin: 0 0 1.1rem; max-width: 44rem;
+  }
+  .iv-hero-dims-label {
+    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
+    color: #6B7C80; margin: 0 0 8px;
   }
   .iv-hero-dims {
     display: flex; flex-wrap: wrap; gap: 8px;
     list-style: none; padding: 0; margin: 0;
   }
   .iv-hero-dims li {
-    font-size: 0.82rem; color: #374151; background: #F3F4F6;
-    border: 1px solid #E5E7EB; border-radius: 8px; padding: 4px 10px;
+    font-size: 0.82rem; color: #33474D; background: #F3F6F6;
+    border: 1px solid #E1EAE9; border-radius: 8px; padding: 4px 10px;
   }
 
   div[data-testid="stMetric"] {
-    background: #F9FAFB; border: 1px solid #ECEFF3;
+    background: #F8FAFA; border: 1px solid #E8EEEE;
     border-radius: 10px; padding: 10px 14px;
   }
 </style>

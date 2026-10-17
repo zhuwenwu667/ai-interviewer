@@ -24,12 +24,13 @@ MAX_UPLOAD_MB = 10
 
 _HERO = """
 <div class="iv-hero">
-  <span class="iv-hero-badge">Agentic RAG · LangGraph</span>
-  <h1 class="iv-hero-title">让 AI 面试官基于你的简历与 JD 出题</h1>
+  <span class="iv-hero-badge">简历驱动 · 评价可溯源</span>
+  <h1 class="iv-hero-title">把你的简历，变成一场模拟面试</h1>
   <p class="iv-hero-sub">
-    上传简历与岗位 JD，约 10 分钟完成一场模拟面试：每道题都来自可溯源的知识库，
-    作答后即时追问，结束时得到评分、原文证据回链与改进建议。
+    上传简历与岗位 JD，AI 面试官据此出题、逐题追问；结束时给出五维评分、亮点与改进建议，
+    每处评价都能回溯到知识库原文。
   </p>
+  <p class="iv-hero-dims-label">报告维度</p>
   <ul class="iv-hero-dims">{dims}</ul>
 </div>
 """
