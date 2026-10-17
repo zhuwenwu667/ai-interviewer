@@ -1,22 +1,54 @@
-"""开始页：API 连通状态、知识库来源（内置示例 / 上传）、岗位方向与题目数。"""
+"""开始页：产品说明（Hero）+ 知识库来源 + 岗位方向与题目数 + 服务诊断。
+
+服务诊断（健康检查、模型配置）是部署信息，默认收进折叠区，
+避免首屏视觉重心被运维状态占据；仅在真的不可用时才前置提示。
+"""
 
 from __future__ import annotations
 
 import streamlit as st
 
 from api_client import ApiClientError, BackendClient
-from ui_common import clear_error, set_error
+from ui_common import REPORT_DIMENSIONS, clear_error, set_error
 
-TRACK_OPTIONS = ["ai_app", "backend", "python", "llm_app"]
+# 岗位方向：对外只展示中文标签，对内仍用后端约定的 slug 取值（format_func 负责映射）
+TRACK_LABELS: dict[str, str] = {
+    "ai_app": "AI 应用开发",
+    "backend": "后端开发",
+    "python": "Python 开发",
+    "llm_app": "LLM 应用开发",
+}
 CUSTOM_TRACK = "其他（自定义）"
 ALLOWED_UPLOAD_TYPES = ["pdf", "md", "markdown", "txt"]
+MAX_UPLOAD_MB = 10
+
+_HERO = """
+<div class="iv-hero">
+  <span class="iv-hero-badge">Agentic RAG · LangGraph</span>
+  <h1 class="iv-hero-title">让 AI 面试官基于你的简历与 JD 出题</h1>
+  <p class="iv-hero-sub">
+    上传简历与岗位 JD，约 10 分钟完成一场模拟面试：每道题都来自可溯源的知识库，
+    作答后即时追问，结束时得到评分、原文证据回链与改进建议。
+  </p>
+  <ul class="iv-hero-dims">{dims}</ul>
+</div>
+"""
 
 
-def _render_health(client: BackendClient) -> None:
+def _hero_html() -> str:
+    dims = "".join(f"<li>{name}</li>" for name in REPORT_DIMENSIONS)
+    return _HERO.format(dims=dims)
+
+
+def _render_diagnostics(client: BackendClient) -> None:
+    """读取 /health：设置 server_ready 供按钮禁用判断，并把详情收进折叠区。"""
     try:
         health = client.health()
     except ApiClientError as exc:
-        st.error(f"后端不可达：{exc}。请确认服务已启动，或检查侧边栏中的 API 地址。")
+        st.error(
+            f"后端不可达：{exc}。请确认服务已启动，"
+            "或检查侧边栏「高级：连接与密钥」中的 API 地址。"
+        )
         st.session_state["server_ready"] = False
         return
 
@@ -26,63 +58,86 @@ def _render_health(client: BackendClient) -> None:
     st.session_state["server_ready"] = True
     st.session_state["server_keys_ready"] = keys_ready
 
-    cols = st.columns(3)
-    cols[0].metric("服务状态", "healthy" if health.get("status") == "healthy" else "degraded")
-    cols[1].metric(
-        "DeepSeek", "已配置" if config.get("deepseek_configured") else "未配置",
-        help=f"对话模型：{config.get('deepseek_model', '')}",
-    )
-    cols[2].metric(
-        "SiliconFlow", "已配置" if config.get("siliconflow_configured") else "未配置",
-        help=f"向量：{config.get('embedding_model', '')} ｜ 重排：{config.get('reranker_model', '')}",
-    )
     if qdrant.get("status") != "ok":
         st.warning(f"向量库状态异常：{qdrant.get('detail', '未知原因')}")
     if not keys_ready:
         st.info(
-            "服务端未配置 API Key。可在左侧「使用我的 API Key（可选）」中临时填写"
+            "服务端未配置模型 API Key，可在左侧「高级：连接与密钥」中临时填写"
             "（仅本次浏览器会话内存保存，不落盘），或在服务器 .env 中配置。"
+        )
+
+    with st.expander("服务诊断（部署信息）", expanded=False):
+        cols = st.columns(3)
+        cols[0].metric("服务状态", "healthy" if health.get("status") == "healthy" else "degraded")
+        cols[1].metric(
+            "DeepSeek",
+            "已配置" if config.get("deepseek_configured") else "未配置",
+            help=f"对话模型：{config.get('deepseek_model', '')}",
+        )
+        cols[2].metric(
+            "SiliconFlow",
+            "已配置" if config.get("siliconflow_configured") else "未配置",
+            help=(
+                f"向量：{config.get('embedding_model', '')} ｜ "
+                f"重排：{config.get('reranker_model', '')}"
+            ),
         )
 
 
 def _uploaded_tuple(uploaded) -> tuple[str, bytes, str]:
-    return (uploaded.name, uploaded.read(), uploaded.type or "application/octet-stream")
+    return (uploaded.name, uploaded.getvalue(), uploaded.type or "application/octet-stream")
 
 
 def render(client: BackendClient) -> None:
-    st.subheader("① 开始一场模拟面试")
-    st.caption("知识库包含内置示例（中文简历 + 中英文 JD + 后端/AI 题库），也可上传你自己的简历与 JD。")
-
-    _render_health(client)
+    st.markdown(_hero_html(), unsafe_allow_html=True)
+    _render_diagnostics(client)
 
     source = st.radio(
         "知识库来源",
-        ["使用内置示例知识库", "上传我的简历 / JD"],
+        ["用示例题库直接体验", "上传我的简历与 JD"],
         horizontal=True,
-        help="选择内置示例将直接使用服务端已摄入的示例简历、JD 与题库。",
+        help="选择示例将直接使用服务端已摄入的示例简历、JD 与题库。",
     )
     resume_file = jd_file = None
     if source.startswith("上传"):
         up_cols = st.columns(2)
         resume_file = up_cols[0].file_uploader(
-            "简历（可选，PDF / Markdown / TXT）", type=ALLOWED_UPLOAD_TYPES
+            "简历（可选）", type=ALLOWED_UPLOAD_TYPES
         )
         jd_file = up_cols[1].file_uploader(
-            "岗位 JD（可选，PDF / Markdown / TXT）", type=ALLOWED_UPLOAD_TYPES
+            "岗位 JD（可选）", type=ALLOWED_UPLOAD_TYPES
         )
-        if resume_file is None and jd_file is None:
-            st.caption("未选择文件时，将等同使用内置示例知识库。")
+        st.caption(
+            f"支持 {', '.join(t.upper() for t in ALLOWED_UPLOAD_TYPES)}，"
+            f"单个文件不超过 {MAX_UPLOAD_MB} MB；两者都不传则等同使用示例知识库。"
+        )
 
-    form_cols = st.columns([2, 1, 2])
-    track_choice = form_cols[0].selectbox("岗位方向", [*TRACK_OPTIONS, CUSTOM_TRACK])
+    form_cols = st.columns([3, 2, 2])
+    track_choice = form_cols[0].selectbox(
+        "岗位方向",
+        [*TRACK_LABELS, CUSTOM_TRACK],
+        format_func=lambda slug: TRACK_LABELS.get(slug, slug),
+    )
     track = track_choice
     if track_choice == CUSTOM_TRACK:
-        track = form_cols[0].text_input("自定义方向（英文或中文均可）", value="")
-    num_questions = form_cols[1].slider("计划题目数", 1, 10, value=3)
-    candidate_name = form_cols[2].text_input("候选人称呼（可选）", value="")
+        track = form_cols[0].text_input(
+            "自定义方向（英文或中文均可）",
+            value="",
+            max_chars=60,
+            placeholder="例如：数据平台 / 推荐算法",
+        )
+    num_questions = form_cols[1].slider("题目数量", 1, 10, value=3)
+    candidate_name = form_cols[2].text_input("你的称呼（可选）", value="", max_chars=40)
 
     disabled = not st.session_state.get("server_ready", False) or not track.strip()
-    if st.button("开始面试 →", type="primary", disabled=disabled):
+    if st.button("开始这场模拟面试 →", type="primary", disabled=disabled):
+        for uploaded in (resume_file, jd_file):
+            if uploaded is not None and len(uploaded.getvalue()) > MAX_UPLOAD_MB * 1024 * 1024:
+                set_error(
+                    f"文件「{uploaded.name}」超过 {MAX_UPLOAD_MB} MB 上限，"
+                    "请压缩或截取后再上传。"
+                )
+                return
         resume = _uploaded_tuple(resume_file) if resume_file else None
         jd = _uploaded_tuple(jd_file) if jd_file else None
         try:
@@ -104,4 +159,5 @@ def render(client: BackendClient) -> None:
             report=None,
             requested_page="interview",  # 下一轮生效（避免同轮改写导航组件 key）
         )
+        st.query_params["session"] = record["session_id"]  # 写入 URL，刷新后仍可续接
         st.rerun()

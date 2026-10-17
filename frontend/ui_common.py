@@ -15,6 +15,15 @@ STAGE_LABELS: dict[str, str] = {
     "done": "已完成",
 }
 
+# 报告评分维度（与 schemas.REPORT_DIMENSIONS 一一对应，开始页据此预告产出）
+REPORT_DIMENSIONS: tuple[str, ...] = (
+    "岗位匹配度",
+    "基础知识",
+    "项目深度",
+    "表达逻辑",
+    "问题解决",
+)
+
 # 等待首个事件时的提示（该窗口期正在做检索 + 出题生成）
 WAITING_LABEL = "检索中，正在组织问题…"
 

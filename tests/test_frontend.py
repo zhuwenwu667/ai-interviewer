@@ -143,7 +143,7 @@ def _button(at: AppTest, label: str):
 
 def _start_session(at: AppTest) -> None:
     at.slider[0].set_value(1)
-    _button(at, "开始面试").click().run()
+    _button(at, "开始这场模拟面试").click().run()
 
 
 # ---------------------------------------------------------------------------
@@ -153,13 +153,18 @@ def test_start_page_renders_and_starts_interview(stub_backend):
     at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
     assert not at.exception
 
-    # 开始页：健康指标（字段取自 /health 契约）、来源选择、方向/题数控件
+    # 开始页：Hero 预告 + 来源选择 + 方向/题数控件 + 折叠的服务诊断
+    text = "\n".join(m.value for m in at.markdown)
+    assert "让 AI 面试官基于你的简历与 JD 出题" in text, "开始页应渲染产品说明"
+    for dimension in ("岗位匹配度", "基础知识", "项目深度", "表达逻辑", "问题解决"):
+        assert dimension in text, f"开始页应预告评分维度：{dimension}"
+    assert "知识库来源" in [r.label for r in at.radio]
+    assert "岗位方向" in [s.label for s in at.selectbox]
+    assert "题目数量" in [s.label for s in at.slider]
+    # 服务诊断收进折叠区，但字段仍取自 /health 契约
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["服务状态"] == "healthy"
     assert metrics["DeepSeek"] == "已配置" and metrics["SiliconFlow"] == "已配置"
-    assert "知识库来源" in [r.label for r in at.radio]
-    assert "岗位方向" in [s.label for s in at.selectbox]
-    assert "计划题目数" in [s.label for s in at.slider]
 
     _start_session(at)
     assert not at.exception

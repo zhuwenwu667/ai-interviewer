@@ -1,4 +1,4 @@
-"""面试页：对话式 UI + SSE 流式消费 + 阶段徽标 + 证据来源 chips + 提前结束。"""
+"""面试页：对话式 UI + SSE 流式消费 + 进度 + 阶段徽标 + 证据来源 chips + 提前结束。"""
 
 from __future__ import annotations
 
@@ -55,6 +55,33 @@ def run_turn(client: BackendClient, session_id: str, content: str) -> None:
         status.update(label="本轮已完成", state="complete")
 
 
+def _asked_count(messages: list[dict], total: int) -> int:
+    """已出题数：以服务端消息的 stage="question" 计数（追问不计入），上限为总题数。"""
+    return min(sum(1 for m in messages if m.get("stage") == "question"), total)
+
+
+@st.dialog("确认结束本次面试？")
+def _confirm_finish() -> None:
+    st.write("结束后将立即汇总评估并生成报告，尚未提问的题目不会再出。该操作不可撤销。")
+    confirm_col, cancel_col = st.columns(2)
+    if confirm_col.button("确认结束并生成报告", type="primary"):
+        st.session_state["finish_confirmed"] = True
+        st.rerun()
+    if cancel_col.button("继续面试"):
+        st.rerun()
+
+
+def _finish_and_open_report(client: BackendClient, session_id: str) -> None:
+    with st.spinner("正在汇总评估并生成报告…"):
+        try:
+            st.session_state["report"] = client.finish(session_id)
+            clear_error()
+            st.session_state["requested_page"] = "report"
+            st.rerun()
+        except ApiClientError as exc:
+            set_error(str(exc), exc.code)
+
+
 def render(client: BackendClient) -> None:
     session_id = st.session_state["session_id"]
     try:
@@ -66,12 +93,17 @@ def render(client: BackendClient) -> None:
     session = detail["session"]
     messages = detail["messages"]
     finished = session["status"] == "finished"
+    total = session["num_questions"]
 
     left, right = st.columns([3, 1])
     with left:
-        st.subheader(f"② 面试进行中：{session['track']}（计划 {session['num_questions']} 题）")
+        st.subheader(f"面试进行中：{session['track']}（计划 {total} 题）")
     with right:
-        st.caption(f"会话 ID：`{session_id[:8]}…`")
+        st.caption(f"会话 ID：`{session_id[:8]}…` ｜ 链接已写入地址栏，刷新可续接")
+
+    if not finished:
+        asked = _asked_count(messages, total)
+        st.progress(asked / total if total else 0.0, text=f"已出题 {asked}/{total}")
 
     for message in messages:
         render_message(message)
@@ -89,6 +121,13 @@ def render(client: BackendClient) -> None:
             st.session_state["auto_started"] = True
             run_turn(client, session_id, "")
             st.rerun()
+        else:
+            # 自动开场失败会停在「零消息」状态：给出重试出口，避免页面卡死在空白页
+            st.warning("第一题尚未生成，上一轮请求可能失败了。可点击下方按钮重试。")
+            if st.button("重新生成第一题", type="primary"):
+                clear_error()
+                st.session_state["auto_started"] = False
+                st.rerun()
         return
 
     answer = st.chat_input("输入你的回答（Enter 提交）…")
@@ -97,11 +136,7 @@ def render(client: BackendClient) -> None:
         st.rerun()
 
     if st.button("提前结束并生成报告"):
-        with st.spinner("正在汇总评估并生成报告…"):
-            try:
-                st.session_state["report"] = client.finish(session_id)
-                clear_error()
-                st.session_state["requested_page"] = "report"
-                st.rerun()
-            except ApiClientError as exc:
-                set_error(str(exc), exc.code)
+        _confirm_finish()
+
+    if st.session_state.pop("finish_confirmed", False):
+        _finish_and_open_report(client, session_id)

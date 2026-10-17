@@ -1,0 +1,12 @@
+# 前端主题：Streamlit 从「当前工作目录下的 .streamlit/config.toml」读取本文件。
+# 容器内工作目录为 /app，故镜像需一并复制该目录（见 Dockerfile）。
+[theme]
+primaryColor = "#4F46E5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F6F7F9"
+textColor = "#1F2430"
+font = "sans serif"
+
+# 关闭匿名使用统计上报：容器内无外网，上报只会产生无意义的重试与日志噪声。
+[browser]
+gatherUsageStats = false

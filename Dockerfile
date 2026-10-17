@@ -72,6 +72,8 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY app/ ./app/
 COPY frontend/ ./frontend/
+# Streamlit 主题（Streamlit 从工作目录 /app 下的 .streamlit/config.toml 读取）
+COPY .streamlit/ ./.streamlit/
 COPY scripts/ ./scripts/
 # 知识库随镜像分发（不是卷）：保证 ingest_kb.py 读到的始终是本次构建的文档
 COPY data/knowledge/ ./data/knowledge/
