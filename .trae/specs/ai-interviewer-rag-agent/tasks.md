@@ -456,6 +456,44 @@
   - `rule` TR-16.1: 同一批生成结果可被两套 judge 分别打分，输出 per-metric Δ、平均/最大绝对差、多档一致率与 Pearson（报告可复核）。
   - `rule` TR-16.2: `EVAL_JUDGE_*` 全部留空时评测行为与改动前一致（离线单测覆盖默认回落链路）。
 
+## Task 17: 引用质量度量升级——来源命中率 → P/R/F1（作品集增强 P1）
+- **Status**: `completed`（指标实现、真实复跑、文档与证据完成；数字全部来自实际运行）
+- **Completion Evidence**:
+  - **指标实现**：`RowOutcome` 新增 `source_precision` / `source_recall` 与派生属性 `source_f1`（`app/eval/runner.py`）；
+    在计算 `source_hit` 的同处按来源粒度算出 P/R（precision = 召回中期望来源占比；recall = 期望来源被覆盖占比）。
+    `app/eval/report.py` 的检索侧统计新增 overall + by_category 的 P/R/F1，逐条 `rows[]` 亦输出三字段，
+    Markdown 报告新增 P/R/F1 行与「| 类别 | n | 来源命中率 | P | R | F1 | 平均上下文数 |」表。
+  - **新增诊断项**：`answer_citation_rate`（答案显式引用标记率，正则 `_CITATION_RE` = `【资料N】`/`[N]`/`根据资料N`/`来源:`），
+    用于判断「引用质量可否在答案侧度量」。
+  - **真实复跑（2026-10-18，43 条）**：报告 `data/eval/reports/eval_20261018_021445.{md,json}`。
+    TR-11.2 门槛**全部通过**：faithfulness 0.989、context_recall 0.993、answer_relevancy 0.895、
+    context_precision 0.940（观察项）；对比基线 Δ = +0.004 / -0.007 / +0.023 / +0.028。
+    检索侧：来源命中率 100.0%（二值，饱和）、**来源精确率 P 0.861**、**来源召回率 R 1.000**、**F1 0.907**、
+    **答案显式引用标记率 22.2%（8/36）**。
+  - **分类别**：`resume` P=1.000、`qa` P=1.000、`jd` P=**0.500**（R 均为 1.000）。
+    JD 类每问同时召回 `ai_backend_jd_zh.md` + `ai_backend_jd_en.md`，而期望集只列中文 JD。
+  - **结论（如实，含局限）**：二值命中率恒 100% 无区分度的问题被 P/R/F1 **缓解**（能暴露 JD 类 P=0.5）；
+    但 **JD 的 P=0.5 是「单期望来源」口径偏严**，把跨文件（同 JD 英文版）的合法召回判为非期望，
+    属**新指标的副作用**而非检索错误。改进方向（已明确、未实施）：`expected_sources` 支持同题多文件或改用品级相关度。
+    答案仅 22.2% 自带引用标记 → 引用质量**只能在检索侧度量**，故不命名为「citation accuracy」（避免过度声称）。
+  - **文档回写**：README 新增 §6.4（含局限披露），§6.1 局限处补交叉引用；`docs/interview_talk.md`
+    §5 表更新为最新复跑值并保留首轮值对照、§5.1 补 §5.4 交叉引用、新增 §5.4、Q7 数值同步、新增 Q11/Q12。
+- **Progress Notes**（实现要点存档）:
+  - 升级前先用**既有 2026-10-16 报告逐条复算**做过口径验证（mean P=0.861 / R=1.000），确认新指标有区分度后再落代码，
+    避免"先写指标、后编解释"。
+  - `source_f1` 是 `RowOutcome` 的 property 而非存储字段，避免同一事实两处维护；聚合时对每行算 F1 再取均值。
+  - P/R/F1 只对 `expected_sources` 非空的非诱导题计算；oos 行为 None，`mean()` 自动忽略，不进分母。
+- **Priority**: medium
+- **Depends On**: Task 11, Task 15
+- **Description**:
+  - 把饱和的二值「来源命中率」升级为来源粒度 precision/recall/F1，使检索侧指标具备区分度。
+  - 增加「答案显式引用标记率」诊断，据此明确引用质量的度量口径（检索侧 vs 答案侧）。
+  - 如实披露单期望来源口径带来的偏差，并给出改进方向。
+- **Acceptance Criteria Addressed**: AC-9, AC-12
+- **Test Requirements**:
+  - `rule` TR-17.1: `RowOutcome` 的 P/R/F1 计算与边界（P+R=0、缺字段）正确；报告聚合与 Markdown 渲染包含新字段。
+  - `rule` TR-17.2: 二值命中率恒为 1.0 时，P/F1 仍能区分「召回中混入非期望来源」的样例。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -471,3 +509,4 @@
 | D10 | Task 13（部署上线）、Task 14（收口） |
 | D11 | Task 15（作品集增强：检索消融对照 + 真实会话成本/延迟实测） |
 | D12 | Task 16（作品集增强：judge 自评偏置治理 + 异源 judge 交叉验证） |
+| D13 | Task 17（作品集增强：引用质量度量升级为来源 P/R/F1） |

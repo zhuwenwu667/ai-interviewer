@@ -336,6 +336,59 @@ def test_build_report_pass_case_and_markdown():
     assert "全部通过" in md
 
 
+def test_source_f1_property_edges():
+    ok = RowOutcome(
+        id="x", category="qa", question="q", ground_truth="g",
+        expected_sources=["a.md"], contexts=[], retrieved_sources=[],
+        source_precision=0.5, source_recall=0.5,
+    )
+    assert ok.source_f1 == pytest.approx(0.5)
+    both_zero = RowOutcome(
+        id="y", category="qa", question="q", ground_truth="g",
+        expected_sources=["a.md"], contexts=[], retrieved_sources=[],
+        source_precision=0.0, source_recall=0.0,
+    )
+    assert both_zero.source_f1 is None
+    missing = RowOutcome(
+        id="z", category="qa", question="q", ground_truth="g",
+        expected_sources=["a.md"], contexts=[], retrieved_sources=[],
+        source_precision=1.0,
+    )
+    assert missing.source_f1 is None
+
+
+def test_report_citation_precision_recall_and_citation_rate():
+    rows = [
+        RowOutcome(
+            id="qa-01", category="qa", question="q1", ground_truth="g1",
+            expected_sources=["a.md", "b.md"], contexts=["c1", "c2"],
+            retrieved_sources=["a.md", "c.md"], answer="依据【资料1】作答。",
+            source_hit=True, source_precision=0.5, source_recall=0.5,
+        ),
+        RowOutcome(
+            id="qa-02", category="qa", question="q2", ground_truth="g2",
+            expected_sources=["a.md", "b.md"], contexts=["c1"],
+            retrieved_sources=["a.md", "b.md"], answer="直接作答，无引用标记。",
+            source_hit=True, source_precision=1.0, source_recall=1.0,
+        ),
+    ]
+    report = build_report(_dataset(), rows, {}, config={})
+    ret = report["retrieval"]
+    assert ret["source_hit_rate"] == 1.0
+    assert ret["source_precision"] == pytest.approx(0.75)
+    assert ret["source_recall"] == pytest.approx(0.75)
+    assert ret["source_f1"] == pytest.approx(0.75)  # (0.5 + 1.0) / 2
+    assert ret["answer_citation_rate"] == pytest.approx(0.5)
+    # 二值命中率恒为 1.0，而 P/F1 能区分「召回里混入非期望来源」
+    assert ret["by_category"]["qa"]["source_precision"] == pytest.approx(0.75)
+    payload = {r["id"]: r for r in report["rows"]}["qa-01"]
+    assert payload["source_f1"] == pytest.approx(0.5)
+    assert payload["source_recall"] == pytest.approx(0.5)
+
+    md = render_eval_markdown(report)
+    assert "来源精确率 P" in md and "答案显式引用标记率" in md
+
+
 def test_build_report_fail_and_baseline_delta():
     rows = [_row("qa-01", "qa"), _row("oos-01", "oos", source_hit=None, refusal=False)]
     scores = {

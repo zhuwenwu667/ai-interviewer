@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import datetime
 from typing import Any
@@ -13,6 +14,9 @@ from app.eval.runner import RowOutcome
 # 题库外诱导题拒答率目标（非 TR-11.2 硬门槛，单独报告）
 OOS_REFUSAL_TARGET = 0.8
 GATED_METRICS = ("faithfulness", "context_recall", "answer_relevancy")
+
+# 答案里的显式引用标记（用于诊断"生成结果是否自带引用"，进而说明引用质量的度量口径）
+_CITATION_RE = re.compile(r"【资料\s*\d+】|\[\d+\]|根据资料\s*\d+|来源[:：]")
 
 REPORT_VERSION = "1.0"
 
@@ -36,6 +40,7 @@ def _retrieval_stats(rows: list[RowOutcome]) -> dict[str, Any]:
     hit_rows = [r for r in rows if r.source_hit is not None]
     in_scope = [r for r in rows if r.category != "oos"]
     oos = [r for r in rows if r.category == "oos"]
+    cited = [r for r in in_scope if r.answer and _CITATION_RE.search(r.answer)]
     by_category: dict[str, dict[str, Any]] = {}
     for category in CATEGORIES:
         cat_rows = [r for r in rows if r.category == category]
@@ -47,6 +52,9 @@ def _retrieval_stats(rows: list[RowOutcome]) -> dict[str, Any]:
                 if cat_hit_rows
                 else None
             ),
+            "source_precision": mean([r.source_precision for r in cat_rows]),
+            "source_recall": mean([r.source_recall for r in cat_rows]),
+            "source_f1": mean([r.source_f1 for r in cat_rows]),
             "mean_contexts": (
                 sum(len(r.contexts) for r in cat_rows) / len(cat_rows)
                 if cat_rows
@@ -59,6 +67,12 @@ def _retrieval_stats(rows: list[RowOutcome]) -> dict[str, Any]:
             sum(1 for r in hit_rows if r.source_hit) / len(hit_rows)
             if hit_rows
             else None
+        ),
+        "source_precision": mean([r.source_precision for r in rows]),
+        "source_recall": mean([r.source_recall for r in rows]),
+        "source_f1": mean([r.source_f1 for r in rows]),
+        "answer_citation_rate": (
+            len(cited) / len(in_scope) if in_scope else None
         ),
         "mean_contexts": (
             sum(len(r.contexts) for r in rows) / len(rows) if rows else None
@@ -169,6 +183,9 @@ def _row_payload(
         "retrieved_sources": row.retrieved_sources,
         "expected_sources": row.expected_sources,
         "source_hit": row.source_hit,
+        "source_precision": row.source_precision,
+        "source_recall": row.source_recall,
+        "source_f1": row.source_f1,
         "n_contexts": len(row.contexts),
         "rounds": row.rounds,
         "stopped_reason": row.stopped_reason,
@@ -260,7 +277,16 @@ def render_markdown(report: dict[str, Any]) -> str:
     retrieval = report["retrieval"]
     lines.append("## 检索侧统计")
     lines.append("")
-    lines.append(f"- 期望来源命中率：{_pct(retrieval['source_hit_rate'])}")
+    lines.append(f"- 期望来源命中率（二值）：{_pct(retrieval['source_hit_rate'])}")
+    lines.append(
+        f"- 来源精确率 P：{_fmt(retrieval['source_precision'])}"
+        f"；来源召回率 R：{_fmt(retrieval['source_recall'])}"
+        f"；F1：{_fmt(retrieval['source_f1'])}"
+    )
+    lines.append(
+        f"- 答案显式引用标记率：{_pct(retrieval['answer_citation_rate'])}"
+        "（生成结果很少自带引用标记，故引用质量按**检索侧**度量）"
+    )
     lines.append(f"- 平均上下文条数：{_fmt(retrieval['mean_contexts'], 2)}")
     lines.append(f"- 平均自适应检索轮数：{_fmt(retrieval['mean_rounds'], 2)}")
     lines.append(
@@ -271,13 +297,14 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- 非诱导题误拒答率：{_pct(retrieval['in_scope_refusal_rate'])}（应接近 0）"
     )
     lines.append("")
-    lines.append("| 类别 | n | 来源命中率 | 平均上下文数 |")
-    lines.append("| --- | --- | --- | --- |")
+    lines.append("| 类别 | n | 来源命中率 | P | R | F1 | 平均上下文数 |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
     for category in CATEGORIES:
         c = retrieval["by_category"][category]
         lines.append(
             f"| {category} | {c['n']} | {_pct(c['source_hit_rate'])} | "
-            f"{_fmt(c['mean_contexts'], 2)} |"
+            f"{_fmt(c['source_precision'])} | {_fmt(c['source_recall'])} | "
+            f"{_fmt(c['source_f1'])} | {_fmt(c['mean_contexts'], 2)} |"
         )
     lines.append("")
 

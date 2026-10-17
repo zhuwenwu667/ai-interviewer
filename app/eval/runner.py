@@ -33,10 +33,21 @@ class RowOutcome:
     answer: str = ""
     refusal_detected: bool = False
     source_hit: bool | None = None
+    # 检索侧「引用质量」：召回来源里有多少是期望来源（precision）／期望来源被覆盖多少（recall）
+    source_precision: float | None = None
+    source_recall: float | None = None
     rounds: int = 1
     stopped_reason: str | None = None
     top_rerank_score: float | None = None
     error: str | None = None
+
+    @property
+    def source_f1(self) -> float | None:
+        """precision / recall 的调和平均；任一为空返回 None。"""
+        p, r = self.source_precision, self.source_recall
+        if p is None or r is None or (p + r) == 0:
+            return None
+        return 2 * p * r / (p + r)
 
     def to_ragas_record(self) -> dict[str, Any]:
         """RAGAS evaluate 所需列（旧列名，经 dataset 转换）。"""
@@ -111,9 +122,11 @@ async def _run_one(
         outcome.answer = await generate_answer(llm, question.question, contexts)
         outcome.refusal_detected = is_refusal(outcome.answer)
         if question.expected_sources:
-            outcome.source_hit = any(
-                s in question.expected_sources for s in sources
-            )
+            expected = set(question.expected_sources)
+            matched = [s for s in sources if s in expected]
+            outcome.source_hit = bool(matched)
+            outcome.source_precision = len(matched) / len(sources) if sources else 0.0
+            outcome.source_recall = len(matched) / len(question.expected_sources)
     except Exception as exc:  # noqa: BLE001 - 单条失败不应中断整批评测
         logger.exception("评测样例 %s 执行失败", question.id)
         outcome.error = f"{type(exc).__name__}: {exc}"
