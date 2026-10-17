@@ -494,6 +494,42 @@
   - `rule` TR-17.1: `RowOutcome` 的 P/R/F1 计算与边界（P+R=0、缺字段）正确；报告聚合与 Markdown 渲染包含新字段。
   - `rule` TR-17.2: 二值命中率恒为 1.0 时，P/F1 仍能区分「召回中混入非期望来源」的样例。
 
+## Task 18: 评测回归门禁——阈值跌出即非零退出 + 接入 CI（作品集增强 P1）
+- **Status**: `completed`（实现、真实运行取证、文档与 CI 工作流完成）
+- **Completion Evidence**:
+  - **门禁逻辑（可离线单测）**：新建 `app/eval/gate.py`——`latest_report(reports_dir)` 取 `eval_*.json` 最新一份；
+    `check_report(report, *, baseline=None, max_drop=0.05)` 返回违规列表，5 类 `kind`：
+    `missing_metric` / `below_threshold` / `oos_refusal` / `exec_errors` / `baseline_drop`。
+    阈值来源复用 `app/eval/metrics_ragas.THRESHOLDS` 与 `app/eval/report.GATED_METRICS / OOS_REFUSAL_TARGET`，不新造一套常量。
+  - **可执行入口**：新建 `scripts/check_eval_gate.py`，退出码 **0=通过 / 2=存在违规 / 1=报告缺失或不可解析**；
+    参数 `--report / --reports-dir / --baseline / --max-drop / --no-baseline`；用 `get_settings()`（**不** `validate_runtime`，故无需任何密钥）。
+  - **真实运行取证（2026-10-18）**：
+    - `uv run python scripts/check_eval_gate.py` → 报告 `eval_20261018_021445.json`（faithfulness 0.989 / context_precision 0.940 /
+      context_recall 0.993 / answer_relevancy 0.895），输出「通过 ✅」，**退出码 0**。
+    - `uv run python scripts/check_eval_gate.py --max-drop 0.001` → 抓到
+      `[baseline_drop] context_recall 相对基线下降 0.0069（> 允许 0.0010）：1.0000 → 0.9931`，输出「未通过 ❌（1 项）」，**退出码 2**。
+    - `uv run ruff check app scripts tests` → All checks passed；`uv run pytest -q` → **146 passed, 1 skipped**（跳过为缺 `langfuse`）。
+  - **接入 CI**：新建 `.github/workflows/ci.yml`（push / PR / 手动触发，**全程无密钥**）：
+    `astral-sh/setup-uv` + `uv sync --frozen` → `ruff check` → `pytest -q -m "not integration"` → `check_eval_gate.py`。
+  - **关键取舍**：**不在 CI 里重跑 RAGAS**——重跑需密钥、有真实费用、约 7 分钟且受 TPM 限速；
+    故把评测定为**发布前手动步骤**（`scripts/run_eval.py` 产报告并入库），CI 只对**已入库报告**做秒级、无密钥、可复现的确定性校验。
+  - **文档回写**：README 新增 §6.5（门禁做法/取舍/实测退出码/CI 工作流）与 §7 取舍条目、§8 命令块补门禁命令；
+    `docs/interview_talk.md` 新增 §5.5、Q13，§5 单测数改 146、§6.1「下一步 ①」标记完成。
+- **Progress Notes**（实现要点存档）:
+  - 门禁刻意**不重跑评测**：把「评测（重、要密钥、有费用）」与「校验（轻、确定性）」解耦，是本次的核心设计决定；
+    CI 里「什么都跑」会带来额度消耗与不可复现的外部抖动。
+  - 违规以**结构化 dict 列表**返回（含 `kind/metric/value/threshold/drop`）而非直接抛异常，便于单测断言与后续接 PR 评论。
+  - `latest_report` 只匹配 `eval_*.json`，天然排除 `ablation_*` / `judge_cross_check_*` / `session_cost_*` 报告，避免误校验。
+- **Priority**: medium
+- **Depends On**: Task 11, Task 17
+- **Description**:
+  - 把评测阈值与拒答率目标固化为可执行门禁：跌出阈值 / 基线跌幅超限 / 有执行失败即非零退出。
+  - 以「校验已入库报告」的形态接入 CI，避免在 CI 中重跑 RAGAS（密钥/费用/耗时/TPM 限速）。
+- **Acceptance Criteria Addressed**: AC-9, AC-12
+- **Test Requirements**:
+  - `rule` TR-18.1: 健康报告通过；缺指标 / 低于阈值 / 拒答率不足 / 存在执行失败 / 基线跌幅超限五类违规均能被 `check_report` 检出。
+  - `rule` TR-18.2: 门禁退出码契约（0 通过 / 2 违规 / 1 报告缺失）稳定，且 `latest_report` 取最新一份报告。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -510,3 +546,4 @@
 | D11 | Task 15（作品集增强：检索消融对照 + 真实会话成本/延迟实测） |
 | D12 | Task 16（作品集增强：judge 自评偏置治理 + 异源 judge 交叉验证） |
 | D13 | Task 17（作品集增强：引用质量度量升级为来源 P/R/F1） |
+| D14 | Task 18（作品集增强：评测回归门禁接入 CI） |

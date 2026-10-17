@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 本 CI 全程**无需任何 API Key、无外部服务、秒级完成**：
+# - 单测（tests/）为离线用例，不含真实模型调用；
+# - 评测回归门禁（scripts/check_eval_gate.py）只做**对已入库报告的确定性校验**，
+#   不在 CI 里重跑 RAGAS（那需要密钥、有真实费用、耗时数分钟，属发布前手动步骤）。
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 安装 Python 与依赖
+        run: |
+          uv python install 3.11
+          uv sync --frozen
+
+      - name: Lint（ruff）
+        run: uv run ruff check app scripts tests
+
+      - name: 离线单测（pytest，排除需真实密钥的 integration）
+        run: uv run pytest -q -m "not integration"
+
+      - name: 评测回归门禁（阈值/拒答率/基线跌幅）
+        run: uv run python scripts/check_eval_gate.py

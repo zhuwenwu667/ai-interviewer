@@ -262,6 +262,32 @@ precision = 召回来源中期望来源的占比，recall = 期望来源被覆�
 - **改进方向（已明确、暂未实施）**：让 `expected_sources` 支持「同题多文件」或改用品级相关度（graded relevance），
   避免把合法召回当成噪声。本项目选择**如实披露这一口径局限**而非粉饰数字。
 
+### 6.5 评测回归门禁：把阈值写进 CI（2026-10-18）
+
+**问题**：上面这些指标是「某一次跑出来的」，靠人记、靠报告——没法保证「下次改动让指标跌了会被发现」。
+
+**做法**：把评测结论**固化成门禁**，在 CI 里做**确定性校验**（[gate.py](file:///c:/Users/50453/Desktop/面试项目/1/app/eval/gate.py) +
+[check_eval_gate.py](file:///c:/Users/50453/Desktop/面试项目/1/scripts/check_eval_gate.py)），任一项不过即**非零退出、构建失败**：
+
+1. 门槛指标达标（`faithfulness` ≥0.85、`context_recall` ≥0.80、`answer_relevancy` ≥0.85）；
+2. 题库外诱导题拒答率 ≥80%；
+3. 报告中**无执行失败样例**；
+4. 相对基线（`data/eval/baseline.json`）各指标跌幅 ≤ `max_drop`（默认 0.05）。
+
+**为何不在 CI 里重跑 RAGAS**：重跑需要 DeepSeek/SiliconFlow 密钥、有真实费用、耗时约 7 分钟且并发受 TPM 限速——不适合放 CI。
+因此把评测当作**发布前手动步骤**（`scripts/run_eval.py` 产出报告并入库），CI 只对**已入库报告**做**秒级、无密钥、可复现**的校验。
+
+**实测**（真实报告 `eval_20261018_021445.json`）：
+
+```powershell
+uv run python scripts/check_eval_gate.py                    # → 通过 ✅，退出码 0
+uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌，退出码 2
+#   [baseline_drop] context_recall 相对基线下降 0.0069（> 允许 0.0010）：1.0000 → 0.9931
+```
+
+CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
+`ruff check` → `pytest -m "not integration"`（146 passed / 1 skipped）→ `check_eval_gate.py`。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -289,6 +315,9 @@ precision = 召回来源中期望来源的占比，recall = 期望来源被覆�
   另一模型族**的 judge，对**同一批生成结果**再打一遍分，用 Δ 与逐条一致率把偏置**量化**出来（§6.3）。
  结论是三项指标稳健、`answer_relevancy` 自评偏高 0.108——于是对该指标的绝对值保持克制解读。可切换的独立 judge 配置
   （`EVAL_JUDGE_*`）默认留空、线上零变化，需要时才启用。
+- **为何门禁「校验报告」而非「CI 里重跑评测」**：评测是有密钥、有费用、数分钟且受 TPM 限速的**重活**，
+  放进 CI 会让每次提交都烧额度、且结果受外部服务抖动影响不可复现。故把评测拆成「**发布前手动跑、报告入库**」
+  与「**CI 秒级校验已入库报告**」两段：门禁要的是**确定性与可控成本**，不是「CI 里什么都跑」（§6.5）。
 
 ## 8. 测试与代码质量
 
@@ -298,7 +327,11 @@ uv run pytest -q -m "not integration"             # 仅离线单测（无需外�
 uv run pytest -m integration                      # 仅集成测试（真实 Qdrant + SiliconFlow + DeepSeek）
 uv run pytest -q -m "not integration" --cov=app --cov-report=term-missing   # 覆盖率
 uv run ruff check app tests frontend              # 静态检查
+uv run python scripts/check_eval_gate.py          # 评测回归门禁（校验最新报告，跌出阈值即非零退出）
 ```
+
+> CI（`.github/workflows/ci.yml`）自动执行：`ruff` → `pytest -m "not integration"` → `check_eval_gate.py`，
+> **无需任何密钥**，push / PR 即触发（详见 §6.5）。
 
 - 离线单测覆盖配置校验、切块/加载、RRF、检索改写开关、自适应循环、图路由、持久化、
   报告渲染、观察性与评测聚合；集成测试用 `-m integration` 标记，与离线用例分离。

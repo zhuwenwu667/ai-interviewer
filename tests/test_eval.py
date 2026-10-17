@@ -16,6 +16,7 @@ from app.eval.dataset import (
     load_dataset,
     validate_dataset,
 )
+from app.eval.gate import check_report, latest_report
 from app.eval.generator import EMPTY_CONTEXT_HINT, build_generation_messages, generate_answer
 from app.eval.metrics_ragas import METRIC_KEYS, JudgeSpec, _is_rate_limited
 from app.eval.refusal import is_refusal
@@ -429,6 +430,79 @@ def test_is_rate_limited_detects_throttling():
     assert _is_rate_limited(RuntimeError("TPM limit reached, please retry"))
     assert not _is_rate_limited(RuntimeError("Connection reset by peer"))
     assert not _is_rate_limited(ValueError("invalid schema"))
+
+
+# ---------- 评测回归门禁 ----------
+
+
+def _healthy_report(**overrides) -> dict:
+    report = {
+        "metrics": {
+            "overall": {
+                "faithfulness": 0.99,
+                "context_precision": 0.94,
+                "context_recall": 0.99,
+                "answer_relevancy": 0.90,
+            }
+        },
+        "retrieval": {"oos_refusal_rate": 1.0},
+        "errors": [],
+    }
+    report.update(overrides)
+    return report
+
+
+def test_gate_passes_on_healthy_report():
+    assert check_report(_healthy_report()) == []
+
+
+def test_gate_flags_below_threshold_and_missing_metric():
+    report = _healthy_report()
+    report["metrics"]["overall"]["faithfulness"] = 0.80  # 门槛 0.85
+    del report["metrics"]["overall"]["context_recall"]
+    kinds = {(v["kind"], v.get("metric")) for v in check_report(report)}
+    assert ("below_threshold", "faithfulness") in kinds
+    assert ("missing_metric", "context_recall") in kinds
+
+
+def test_gate_flags_oos_refusal_and_exec_errors():
+    report = _healthy_report(
+        retrieval={"oos_refusal_rate": 0.5},
+        errors=[{"id": "qa-01", "error": "TimeoutError"}],
+    )
+    kinds = {v["kind"] for v in check_report(report)}
+    assert "oos_refusal" in kinds
+    assert "exec_errors" in kinds
+
+
+def test_gate_baseline_drop_respects_max_drop():
+    baseline = {"metrics": {"overall": {"context_recall": 0.99, "answer_relevancy": 0.90}}}
+    # 无跌幅 → 不违规
+    assert check_report(_healthy_report(), baseline=baseline, max_drop=0.05) == []
+    # 跌幅 0.01：宽松容忍（0.05）下合规，收紧到 0.005 后被拦下
+    slight = _healthy_report()
+    slight["metrics"]["overall"]["context_recall"] = 0.98
+    assert check_report(slight, baseline=baseline, max_drop=0.05) == []
+    strict = check_report(slight, baseline=baseline, max_drop=0.005)
+    assert any(v["kind"] == "baseline_drop" for v in strict)
+    # 跌幅 0.09 > 0.05 → 违规
+    dropped = _healthy_report()
+    dropped["metrics"]["overall"]["context_recall"] = 0.90
+    bad = check_report(dropped, baseline=baseline, max_drop=0.05)
+    assert any(v["kind"] == "baseline_drop" and v["metric"] == "context_recall" for v in bad)
+
+
+def test_gate_baseline_none_is_not_a_failure():
+    assert check_report(_healthy_report(), baseline=None) == []
+
+
+def test_latest_report_picks_newest(tmp_path):
+    assert latest_report(tmp_path) is None
+    (tmp_path / "eval_20260101_000000.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "eval_20260202_000000.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "archived.txt").write_text("x", encoding="utf-8")
+    newest = latest_report(tmp_path)
+    assert newest is not None and newest.name == "eval_20260202_000000.json"
 
 
 # ---------- 异源 judge 交叉验证 ----------
