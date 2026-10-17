@@ -305,14 +305,15 @@
   - `rule` TR-12.2: 配置有效 Langfuse key（集成测试/手工）时同名 trace 可在 Langfuse UI 查到；关闭后业务无任何行为差异（测试全绿）。
 
 ## Task 13: Docker 化与云服务器部署
-- **Status**: `completed`（全部部署产物已交付并通过离线校验；TR-13.1/TR-13.2 需 Docker/云服务器环境实测，本机无 Docker Desktop 且 WSL 无发行版，无法自验，已列明待用户实测项）
+- **Status**: `completed`（部署产物交付 + 离线校验 + **TR-13.1/TR-13.2 已在腾讯云服务器上真实跑通**，全项通过）
 - **Completion Evidence**:
   - **部署产物**：`Dockerfile`（多阶段：builder 用 uv 0.13.0 执行 `uv sync --frozen --no-dev --no-install-project --extra obs`；runtime 复制 `.venv`，非 root 用户 `appuser` UID/GID 1000；一个镜像由 compose 以不同 command 分别启动 api 与 streamlit）；`docker-compose.yml`（qdrant `v1.19.2` + 命名卷 `qdrant_storage`、api、streamlit 三服务，均带 healthcheck，`depends_on: condition: service_healthy` 顺序 qdrant→api→streamlit，密钥仅经 `env_file: .env` 注入）；`.dockerignore`（排除 `.env*`、`.venv`、`__pycache__`、运行时产物 `data/db`、`logs` 等）；`deploy/deploy.sh`（含 `--help/--no-build/--skip-ingest`，检查 Docker→引导 `.env`→构建启动→轮询三容器 healthy→`check_models.py` 验活→`ingest_kb.py` 摄入→打印公网 `IP:8501`）；README 部署章节（规格/安全组/安装/一键部署/手动等价命令/验证达标/Windows 用法/更新日志备份）。
   - **离线等价校验（本机无 Docker，以结构断言 + 解析 + 静态检查替代运行时验证）**：compose 结构断言 12 项通过（三服务、共用镜像、`QDRANT_MODE=server`、内网 `API_BASE_URL=http://api:8000`、依赖顺序、三服务 healthcheck、命名卷、qdrant 无 `ports`、api 仅绑 `127.0.0.1:8000`、8501 发布、密钥仅 env_file）；Dockerfile 断言 3 项通过（多阶段、非 root、关键 flag）且全部 COPY 宿主源存在；`.dockerignore`/`.gitignore` 断言 5 项通过；`shellcheck -S style deploy/deploy.sh` 零告警。
   - **依赖同步命令有效性**：`uv sync --frozen --no-dev --no-install-project --extra obs --dry-run` 解析成功（"Would download 1 package / Would install 86 packages"，含 `langfuse==2.60.10`、`streamlit==1.66.0`，且项目自身未被安装），证明锁定文件与 obs extra 解析无误；此前一次完整下载复现因 **`pyarrow==26.0.0` 下载网络超时**（`client error (Connect)` / `operation timed out`）退出码 2，属环境网络问题而非命令问题。
   - **密钥安全**：仓库可见文件（按 ignore 规则排除 `.env`/`.venv` 等后）执行 `sk-[A-Za-z0-9]{16,}` 模式扫描零命中；`.env.example` 中原先误入的真实 Key 已改为 `sk-your-deepseek-key-here` / `sk-your-siliconflow-key-here` 占位符。
-  - **TR-13.1 未自验**（本机无 `docker.exe`、WSL 无发行版）：待在有 Docker 的环境执行 `docker compose up -d`，确认三容器 `healthy`、`curl 127.0.0.1:8000/health` 返回 200、浏览器打开 8501。
-  - **TR-13.2 待用户实测**：脚本与 README 已交付，待用户于云服务器执行 `bash deploy/deploy.sh` 后提供公网 `IP:8501` 完成一次完整模拟面试的走查证据。
+  - **TR-13.1 已实测（2026-10-17，腾讯云 Lighthouse 2C4G，Ubuntu 22.04，公网 42.194.242.186）**：`bash deploy/deploy.sh` 全流程通过 —— 镜像多阶段构建成功；`docker compose ps` 三容器全部 **healthy**（`ai-interviewer-qdrant-1`、`ai-interviewer-api-1`、`ai-interviewer-streamlit-1`）；容器内 `curl http://127.0.0.1:8000/health` → `{"status":"healthy",...,"qdrant":{"status":"ok","mode":"server"}}`（DeepSeek/SiliconFlow 均已配置、Langfuse 关闭态正常降级）；`check_models.py` 三接口 **chat/embedding/rerank 全部"可用"**（HTTP 200；embedding 维度 1024；rerank 降序 #0=0.9960/#1=0.0000）；`ingest_kb.py --rebuild` → resume=13 / jd=19 / qa=41，集合总点数 **73**（Qdrant server 模式）。
+  - **TR-13.2 已实测（2026-10-17，浏览器走查公网入口）**：`http://42.194.242.186:8501` 从外部机器 `curl` 返回 **HTTP 200**（`/_stcore/health` 与 `/` 均为 200，证明防火墙 8501 已放行）；随后用浏览器对该公网地址完成**一次完整模拟面试**：填写候选人称呼 → 开始面试 → 首题 RAG 检索链路设计题流式输出完整 → 作答 → 面试官追问流式输出完整 → 再答一轮（多轮对话正常）→ 点击「提前结束并生成报告」→ 报告页展示岗位匹配度/基础知识/项目深度/表达逻辑/问题解决等维度评分与改进建议。**出题→作答→反馈→报告全链路在生产环境跑通。**
+  - **构建期镜像源修复（本轮关键排障，已提交 `007dd74`）**：`uv.lock` 中每个包写死了官方 CDN 绝对直链（`https://files.pythonhosted.org/...`），`--frozen` 模式按该 URL 直连下载、**忽略 `UV_INDEX_URL`** → 国内反复卡在 `uv sync`（实测 `nsenter` 进构建命名空间 `ss` 看到 ESTAB 到 Fastly `151.101.0.223:443`，即 files.pythonhosted.org）。修复：Dockerfile 构建期 `sed -i "s#https://files.pythonhosted.org/#https://${UV_MIRROR_HOST}/#g" uv.lock`（默认 TUNA；镜像与官方文件字节一致、路径结构相同，sha256 校验不受影响）。修复后 `uv sync` **32s 完成**（此前 7+ 分钟无进展）。
   - **TR-13.3 已完整验证（2026-10-16，本机 `git init` 后实测）**：`git ls-files` 共 **100 个受跟踪文件，其中无 `.env`**（仅 `.env.example`）；`git check-ignore -v .env` 显示被 `.gitignore:2:.env` 规则忽略；对被跟踪文件逐文件执行 `sk-[A-Za-z0-9]{16,}` 模式扫描 → **0 命中**，无真实密钥入库。`.env` 为本地私有（含 2 个真实 Key，已确认被 git 忽略、不入库）。
 - **Progress Notes**（实现要点存档）:
   - 命名卷首次创建时继承镜像内目录属主 → 非 root `appuser`(UID 1000) 无需启动期 `chown` 即可写卷。
@@ -320,6 +321,8 @@
   - Qdrant 默认无鉴权 → 不发布 6333 端口；api 端口仅绑 `127.0.0.1:8000`（前端走容器内网访问），公网唯一入口 8501。
   - qdrant healthcheck 依据其镜像 entrypoint 为 `#!/usr/bin/env bash`（base `debian:12-slim`，经官方 Dockerfile 佐证）→ 用 bash 内建 `/dev/tcp` 探 6333，不依赖镜像内是否有 curl/wget；api/streamlit 用镜像自带 python 标准库探 HTTP 健康端点。
   - 镜像只装 `obs` extra、不含 eval(ragas) 依赖 → README 与 `deploy.sh` 中评测命令统一改为"本地开发环境 `uv sync --extra eval` 后运行"，避免给出必然失败的命令。
+  - 国内服务器部署两大网络坑（已在 Dockerfile 内置规避）：① **PyPI**：直连 `files.pythonhosted.org` 仅约 69 KB/s，改走清华 TUNA 后 28 MB/s；但 `uv.lock` 内的**绝对直链**使 `--frozen` 绕过索引镜像，故必须同时改写直链主机（见 Completion Evidence）。② **Docker Hub**：`registry-1.docker.io` 直连不通，需在 `/etc/docker/daemon.json` 配 `registry-mirrors: ["https://mirror.ccs.tencentyun.com"]`（实测可拉取 `python:3.11-slim`、`qdrant/qdrant:v1.19.2`）。
+  - 排障手法存档：用 `nsenter -t <pid> -n ss -tanp` 进构建命名空间观察网络，绕开"宿主机 `ss` 看不到构建容器连接"的盲区；`pgrep -af 'docker compo[s]e build'` 用字符类避免 `pkill -f` 匹配到自身 ssh 命令行。
 - **Priority**: high
 - **Depends On**: Task 10, Task 12
 - **Description**:
