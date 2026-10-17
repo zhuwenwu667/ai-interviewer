@@ -135,7 +135,7 @@ async def main() -> int:
             "top_k": top_k,
             "concurrency": args.concurrency,
             "ragas_workers": args.workers,
-            "judge_model": settings.eval_model,
+            "judge_model": settings.judge_model,
             "generator_model": settings.question_model,
             "embedding_model": settings.embedding_model,
             "reranker_model": settings.reranker_model,

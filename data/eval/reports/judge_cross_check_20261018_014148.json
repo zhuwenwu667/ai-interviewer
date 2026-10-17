@@ -1,0 +1,1117 @@
+{
+  "generated_at": "2026-10-18T01:41:48+08:00",
+  "dataset": {
+    "executed": 43,
+    "counts": {
+      "resume": 10,
+      "jd": 10,
+      "qa": 16,
+      "oos": 7
+    }
+  },
+  "primary_judge": {
+    "model": "deepseek-chat",
+    "base_url": "https://api.deepseek.com"
+  },
+  "cross_judge": {
+    "model": "Qwen/Qwen2.5-72B-Instruct",
+    "base_url": "https://api.siliconflow.cn/v1"
+  },
+  "config": {
+    "use_adaptive": true,
+    "top_k": 6,
+    "generator_model": "deepseek-chat",
+    "embedding_model": "BAAI/bge-m3",
+    "dataset": {
+      "executed": 43,
+      "counts": {
+        "resume": 10,
+        "jd": 10,
+        "qa": 16,
+        "oos": 7
+      }
+    }
+  },
+  "n_scored": 36,
+  "agree_tol": 0.1,
+  "metrics": {
+    "faithfulness": {
+      "primary_mean": 0.9730065800499238,
+      "cross_mean": 1.0,
+      "delta": -0.027,
+      "n_pairs": 36,
+      "n_missing": 0,
+      "mean_abs_diff": 0.027,
+      "max_abs_diff": 0.3333,
+      "pearson": null,
+      "agree_0.05": 0.8056,
+      "agree_0.1": 0.8889,
+      "agree_0.2": 0.9722,
+      "exact": 0.8056
+    },
+    "context_precision": {
+      "primary_mean": 0.9283564814043523,
+      "cross_mean": 0.9136959875863264,
+      "delta": 0.0147,
+      "n_pairs": 36,
+      "n_missing": 0,
+      "mean_abs_diff": 0.0239,
+      "max_abs_diff": 0.4167,
+      "pearson": 0.8663,
+      "agree_0.05": 0.8889,
+      "agree_0.1": 0.9167,
+      "agree_0.2": 0.9722,
+      "exact": 0.8889
+    },
+    "context_recall": {
+      "primary_mean": 1.0,
+      "cross_mean": 1.0,
+      "delta": 0.0,
+      "n_pairs": 36,
+      "n_missing": 0,
+      "mean_abs_diff": 0.0,
+      "max_abs_diff": 0.0,
+      "pearson": null,
+      "agree_0.05": 1.0,
+      "agree_0.1": 1.0,
+      "agree_0.2": 1.0,
+      "exact": 1.0
+    },
+    "answer_relevancy": {
+      "primary_mean": 0.8985820958805929,
+      "cross_mean": 0.7904660955787164,
+      "delta": 0.1081,
+      "n_pairs": 36,
+      "n_missing": 0,
+      "mean_abs_diff": 0.1122,
+      "max_abs_diff": 0.3052,
+      "pearson": 0.6376,
+      "agree_0.05": 0.3611,
+      "agree_0.1": 0.5556,
+      "agree_0.2": 0.8056,
+      "exact": 0.0556
+    }
+  },
+  "overall_cell_agreement": {
+    "agree_0.05": 0.7639,
+    "agree_0.1": 0.8403,
+    "agree_0.2": 0.9375
+  },
+  "n_cells": 144,
+  "self_inflation": {
+    "faithfulness": -0.027,
+    "context_precision": 0.0147,
+    "context_recall": 0.0,
+    "answer_relevancy": 0.1081
+  },
+  "rows": [
+    {
+      "id": "resume-01",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.8333333333333334,
+          "cross": 1.0,
+          "delta": -0.1667
+        },
+        "context_precision": {
+          "primary": 0.49999999995,
+          "cross": 0.49999999995,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.5569034755069923,
+          "cross": 0.5165684890665182,
+          "delta": 0.0403
+        }
+      },
+      "max_abs_delta": 0.1667,
+      "answer": "- 姓名：张明\n- 最高学历：硕士（计算机科学与技术）\n- 毕业院校：某 985 高校\n- 毕业时间：2023 年（2023.06）"
+    },
+    {
+      "id": "resume-02",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8322286720166624,
+          "cross": 0.8674248330880033,
+          "delta": -0.0352
+        }
+      },
+      "max_abs_delta": 0.0352,
+      "answer": "根据参考资料：\n\n- **工作年限**：3 年。\n- **求职意向**：AI 应用开发工程师 / 大模型后端工程师。"
+    },
+    {
+      "id": "resume-03",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9970982027147789,
+          "cross": 0.899975705408298,
+          "delta": 0.0971
+        }
+      },
+      "max_abs_delta": 0.0971,
+      "answer": "候选人主导的 RAG 智能客服项目要解决的问题和业务规模如下：\n\n**要解决的问题：**\n- 传统关键词检索命中率低、答案无溯源。\n\n**业务规模：**\n- 客服团队每月处理约 10 万次咨询；\n- 知识库有 3000+ 篇文档。"
+    },
+    {
+      "id": "resume-04",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8948953377011309,
+          "cross": 0.7187351685473988,
+          "delta": 0.1762
+        }
+      },
+      "max_abs_delta": 0.1762,
+      "answer": "根据资料 1，该 RAG 检索管线包含以下环节：\n\n1. 查询改写（Multi-Query / HyDE）\n2. 向量与 BM25 混合检索\n3. RRF 融合\n4. Rerank 精排\n\n问答采纳率从 52% 提升到 78%。"
+    },
+    {
+      "id": "resume-05",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8879199843253552,
+          "cross": 0.8511635203487519,
+          "delta": 0.0368
+        }
+      },
+      "max_abs_delta": 0.0368,
+      "answer": "根据【资料 1】，Agentic RAG 自评估重检索的工作方式与效果如下：\n\n**工作方式：**\n- 由 LLM 自评检索质量；\n- 当上下文不足时，自动改写问题并重新检索。\n\n**量化效果：**\n- 将“知识库有答案但没召回”的比例从 18% 降到 6%。"
+    },
+    {
+      "id": "resume-06",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.99999999995,
+          "cross": 0.99999999995,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8697347240369714,
+          "cross": 0.8207045824403573,
+          "delta": 0.049
+        }
+      },
+      "max_abs_delta": 0.049,
+      "answer": "候选人用 LangGraph 编排的流程为：意图识别 → 工具选择（知识库/工单查询/转人工）→ 生成 → 安全审核；替代了原先难以维护的超长 if-else 链。"
+    },
+    {
+      "id": "resume-07",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9084304700399355,
+          "cross": 0.8537361839622029,
+          "delta": 0.0547
+        }
+      },
+      "max_abs_delta": 0.0547,
+      "answer": "根据【资料 1】，客服项目为降低响应延迟做了两项优化：\n\n1. 通过 Redis 缓存高频问题的检索结果；\n2. 对 embedding 调用做批处理。\n\nP95 响应时间从 6.2s 降到 2.1s。"
+    },
+    {
+      "id": "resume-08",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.848596069100557,
+          "cross": 0.7477023626811775,
+          "delta": 0.1009
+        }
+      },
+      "max_abs_delta": 0.1009,
+      "answer": "- 峰值 QPS：大促期间下单接口峰值 QPS 从日常 2000 冲到 15000。\n- 解决超卖的办法：用 Redis Lua 脚本实现库存预扣的原子操作，解决“查库存-扣库存”竞态导致的超卖问题，实现大促零超卖。"
+    },
+    {
+      "id": "resume-09",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8124425409391631,
+          "cross": 0.6948904469300253,
+          "delta": 0.1176
+        }
+      },
+      "max_abs_delta": 0.1176,
+      "answer": "根据【资料 1】：\n\n- **削峰与最终一致性手段**：引入 Kafka 异步下单削峰，配合幂等键与本地消息表保证最终一致性。\n- **下单接口 P99**：从 800ms 降到 150ms。"
+    },
+    {
+      "id": "resume-10",
+      "category": "resume",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.7536285099390789,
+          "cross": 0.6568762101264761,
+          "delta": 0.0968
+        }
+      },
+      "max_abs_delta": 0.0968,
+      "answer": "- URL 去重：使用布隆过滤器做 URL 去重。\n- 采集规模：日均采集 500 万网页。"
+    },
+    {
+      "id": "jd-zh-01",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.699999999965,
+          "cross": 0.699999999965,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.995029067639786,
+          "cross": 0.8997200308781373,
+          "delta": 0.0953
+        }
+      },
+      "max_abs_delta": 0.0953,
+      "answer": "- 岗位正式名称：AI 应用开发工程师（大模型后端方向）\n- 所属部门：智能平台研发部\n- 办公地点：杭州 / 远程可选"
+    },
+    {
+      "id": "jd-zh-02",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.8333333332916666,
+          "cross": 0.9999999999666667,
+          "delta": -0.1667
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9433083576342737,
+          "cross": 0.8588527047584252,
+          "delta": 0.0845
+        }
+      },
+      "max_abs_delta": 0.1667,
+      "answer": "- 经验要求：3 年以上后端开发经验，1 年以上大模型应用开发经验。\n- 学历要求：本科及以上，计算机相关专业优先。"
+    },
+    {
+      "id": "jd-zh-03",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999666667,
+          "cross": 0.99999999998,
+          "delta": -0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.95316232596141,
+          "cross": 0.881276074975308,
+          "delta": 0.0719
+        }
+      },
+      "max_abs_delta": 0.0719,
+      "answer": "与 RAG 和 Agent 相关的核心职责如下：\n\n**RAG 相关：**\n- 第 1 条：负责大模型应用平台后端设计与开发，包括 RAG 知识库、Agent 工作流、模型网关等核心系统（RAG 与 Agent 均涉及）。\n- 第 2 条：设计并持续优化检索增强生成管线，包括文档解析与切块、Embedding、混合检索、Rerank、上下文管理，持续提升回答准确率与忠实度。\n- 第 4 条：构建模型与 RAG 系统的离线/在线评测体系，用数据驱动 prompt、检索策略与模型选型决策。\n\n**Agent 相关：**\n- 第 3 条：基于 LangGraph 等框架编排多步 Agent，实现工具调用、人机协同、状态持久化与失败恢复。\n\n其中第 1 条同时涵盖 RAG 知识库与 Agent 工作流。"
+    },
+    {
+      "id": "jd-zh-04",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.8874999999778125,
+          "cross": 0.8874999999778125,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9796746552450207,
+          "cross": 0.9574613309824658,
+          "delta": 0.0222
+        }
+      },
+      "max_abs_delta": 0.0222,
+      "answer": "根据【资料 1】，岗位必备要求中对 RAG 全链路的具体技术要求为：深入理解 RAG 全链路，并具备以下技术的实战与调优经验：\n\n1. 混合检索（向量 + 关键词）\n2. Rerank（重排序）\n3. 查询改写\n4. Chunking 策略"
+    },
+    {
+      "id": "jd-zh-05",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.7499999999625,
+          "cross": 0.7499999999625,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.999969086298171,
+          "cross": 0.6947777551160405,
+          "delta": 0.3052
+        }
+      },
+      "max_abs_delta": 0.3052,
+      "answer": "该岗位列出的加分项有：\n\n1. 有 RAGAS/自建 LLM-as-judge 评测体系落地经验，能讲清指标定义与评测陷阱；\n2. 有 Function Calling / 多 Agent 协作 / Agent 长短期记忆的生产实践；\n3. 熟悉 DeepSeek、通义千问等国产大模型 API 与 OpenAI 兼容协议，了解模型参数（temperature、top_p）对输出的影响；\n4. 有大模型应用的成本与延迟优化经验（缓存、模型分级、prompt 压缩、流式输出）；\n5. 有 Kubernetes、可观测（OpenTelemetry/Langfuse）实践经验。"
+    },
+    {
+      "id": "jd-zh-06",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999666667,
+          "cross": 0.91666666664375,
+          "delta": 0.0833
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9372535500427773,
+          "cross": 0.6958606227279497,
+          "delta": 0.2414
+        }
+      },
+      "max_abs_delta": 0.2414,
+      "answer": "根据参考资料，面试官重点考察以下能力：\n\n1. **RAG 各环节失败模式的定位能力**：检索不到、检索到但排得靠、上下文丢失、模型幻觉分别如何诊断与解决。\n2. **系统设计能力**：设计一个支持多知识库、可溯源、可评测的企业问答系统。\n3. **代码能力**：异步并发、幂等、重试退避、边界条件处理。\n4. **项目深度**：能讲清所做项目的量化指标、技术选型取舍与踩坑细节，而非停留在“调用了 API”。\n\n此外，必备要求中还涉及：Python 工程能力与异步框架（FastAPI 等）、RAG 全链路实战（混合检索、Rerank、查询改写、Chunking）、Agent 编排框架（LangGraph/LlamaIndex/AutoGen）、向量数据库及索引原理、后端基本功（MySQL、Redis、消息队列、Docker）、工程习惯（类型标注、单元测试、异常处理、结构化日志、代码评审）。"
+    },
+    {
+      "id": "jd-en-01",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.8333333332916666,
+          "cross": 0.8333333332916666,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9999767082705202,
+          "cross": 0.9999767082705202,
+          "delta": 0.0
+        }
+      },
+      "max_abs_delta": 0.0,
+      "answer": "The exact job title is **AI Application Developer, LLM Backend**, and the hire will join the **Intelligent Platform Engineering** team."
+    },
+    {
+      "id": "jd-en-02",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.8333333332916666,
+          "cross": 0.8333333332916666,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9140618595852303,
+          "cross": 0.9212357390193656,
+          "delta": -0.0072
+        }
+      },
+      "max_abs_delta": 0.0072,
+      "answer": "- **Experience**: 3+ years of backend engineering experience, plus 1+ year of experience building LLM-powered applications.\n- **Education**: Bachelor's degree or above; a degree in Computer Science or a related field is preferred."
+    },
+    {
+      "id": "jd-en-03",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.4166666666458333,
+          "cross": 0.4166666666458333,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.6575885007507684,
+          "cross": 0.6495862776830593,
+          "delta": 0.008
+        }
+      },
+      "max_abs_delta": 0.008,
+      "answer": "The job description states that the role involves building offline and online evaluation systems for RAG and LLM quality, and using data to drive decisions on prompts, retrieval strategies, and model selection."
+    },
+    {
+      "id": "jd-en-04",
+      "category": "jd",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.8333333333055556,
+          "cross": 0.4166666666458333,
+          "delta": 0.4167
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9957343801611764,
+          "cross": 0.9530566346038544,
+          "delta": 0.0427
+        }
+      },
+      "max_abs_delta": 0.4167,
+      "answer": "The English JD lists the following preferred qualifications beyond the core requirements:\n\n1. Experience shipping RAGAS or custom LLM-as-a-judge evaluation pipelines, including awareness of metric definitions and evaluation pitfalls.\n2. Production experience with function calling, multi-agent collaboration, and agent memory.\n3. Familiarity with DeepSeek, Qwen, and other Chinese LLM APIs exposing OpenAI-compatible endpoints, and with sampling parameters such as temperature and top_p.\n4. Experience optimizing LLM application cost and latency via caching, model tiering, prompt compression, and streaming.\n5. Experience with Kubernetes and observability tools such as OpenTelemetry or Langfuse."
+    },
+    {
+      "id": "qa-01",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.99999999995,
+          "delta": -0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8060928335387638,
+          "cross": 0.8258809373889613,
+          "delta": -0.0198
+        }
+      },
+      "max_abs_delta": 0.0198,
+      "answer": "GIL（Global Interpreter Lock，全局解释器锁）是 CPython 解释器中的一把互斥锁，保证同一进程内同一时刻只有一个线程执行 Python 字节码。\n\n对两类任务的影响：\n\n- **CPU 密集型任务**：多线程无法真正利用多核并行，应使用多进程（multiprocessing）或 C 扩展释放 GIL。\n- **I/O 密集型任务**：影响小。线程在等待网络/磁盘 I/O 时会释放 GIL，因此多线程或 asyncio 仍能显著提升吞吐。\n\n补充：GIL 保护的是解释器内部状态（如引用计数），并不等于业务代码线程安全，共享数据的竞态仍需加锁。"
+    },
+    {
+      "id": "qa-02",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.9473684210526315,
+          "cross": 1.0,
+          "delta": -0.0526
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.99999999995,
+          "delta": -0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9847186765628765,
+          "cross": 0.7117392245902,
+          "delta": 0.273
+        }
+      },
+      "max_abs_delta": 0.273,
+      "answer": "协程相比多线程的优势（依据资料 1、资料 2）：\n\n- 协程在用户态由事件循环调度，单线程内切换，无需操作系统线程切换，也没有 GIL 竞争，可轻松支撑上万并发连接。\n- 资源开销最小，适合 I/O 密集且连接数多的场景，例如同时调用多个 LLM/HTTP 接口。\n- 对 I/O 密集型任务，多线程在等待 I/O 时会释放 GIL，因此也能提升吞吐；但协程的调度开销更小。\n\nasyncio 事件循环的调度方式（依据资料 1）：\n\n- 事件循环维护就绪和等待中的任务。\n- 遇到 await 的 I/O 操作时，挂起当前协程；I/O 就绪后通过回调唤醒该协程。\n- 协程只在 I/O 等待处让出执行权；CPU 密集代码里 await 不会让出，会阻塞整个循环。\n- 协程里不能混用 requests、time.sleep 等阻塞调用，应使用 httpx、asyncio.sleep。"
+    },
+    {
+      "id": "qa-03",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.9230769230769231,
+          "cross": 1.0,
+          "delta": -0.0769
+        },
+        "context_precision": {
+          "primary": 0.8333333332916666,
+          "cross": 0.8333333332916666,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9890017549156648,
+          "cross": 0.9160319800984212,
+          "delta": 0.073
+        }
+      },
+      "max_abs_delta": 0.0769,
+      "answer": "根据参考资料，三者适用场景如下：\n\n- **多进程**：适合 CPU 密集型任务，可绕开 GIL 利用多核，如数值计算、批量解析。\n- **协程（asyncio）**：适合 I/O 密集且连接数多的场景，资源开销最小，如同时调用多个 LLM/HTTP 接口。\n- **多线程**：适合 I/O 密集且依赖阻塞库的场景，如旧版 requests、文件操作。\n\n工程上常组合使用：FastAPI 处理网络 I/O 用协程，CPU 重任务丢到 ProcessPoolExecutor。"
+    },
+    {
+      "id": "qa-04",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9557546588255681,
+          "cross": 0.9672624888103054,
+          "delta": -0.0115
+        }
+      },
+      "max_abs_delta": 0.0115,
+      "answer": "根据参考资料 1：\n\n**MySQL 用 B+ 树做索引的原因：**\n- 索引将全表扫描变为有序结构上的少量定位，B+ 树高度通常只有 3-4 层即可支撑千万级数据。\n\n**B+ 树相比 B 树的优势：**\n- B+ 树只有叶子节点存数据，非叶子节点能容纳更多索引键，树更矮，磁盘 I/O 更少。\n- 叶子节点通过双向链表相连，天然高效支持范围查询与排序。\n\n补充（同属资料 1 的索引结构说明）：聚簇索引叶子节点存整行数据，二级索引叶子节点存主键，需回表（覆盖索引可避免）。"
+    },
+    {
+      "id": "qa-05",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9042362564952828,
+          "cross": 0.6348590657272852,
+          "delta": 0.2694
+        }
+      },
+      "max_abs_delta": 0.2694,
+      "answer": "根据参考资料，三者的区别与解决方案如下：\n\n**缓存穿透**\n- 区别：查询的是不存在的数据，请求全部打到数据库。\n- 解决方案：缓存空值（设置较短 TTL）、使用布隆过滤器。\n\n**缓存击穿**\n- 区别：单个热点 key 过期瞬间，大量并发请求打到数据库。\n- 解决方案：互斥锁重建、逻辑过期、热点数据不过期。\n\n**缓存雪崩**\n- 区别：大量 key 同时过期，或 Redis 宕机导致请求压向数据库。\n- 解决方案：TTL 加随机抖动、多级缓存、集群高可用、限流降级。\n\n三者都需要配合限流与兜底措施，避免数据库被打垮。"
+    },
+    {
+      "id": "qa-06",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9880607348891148,
+          "cross": 0.8832327861515088,
+          "delta": 0.1048
+        }
+      },
+      "max_abs_delta": 0.1048,
+      "answer": "用 Redis 实现分布式锁的注意事项及 RedLock 争议如下：\n\n**实现注意事项**\n- 基础实现用 `SET key value NX PX timeout`，value 使用唯一标识；释放时用 Lua 脚本先校验再删除，避免误删他人的锁。\n- 必须设置过期时间防止死锁；业务执行时间可能超过 TTL 时，需要看门狗续期。\n- 主从异步复制下，故障切换可能导致锁丢失，因此它不是严格意义上的强一致锁。\n\n**RedLock 争议**\n- RedLock 通过多数节点加锁来提高安全性，但 Martin Kleppmann 与 antirez 之间存在著名争论。\n- 对强一致要求高的场景，应选择 ZooKeeper/etcd。"
+    },
+    {
+      "id": "qa-07",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.6666666666666666,
+          "cross": 1.0,
+          "delta": -0.3333
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8259805953278301,
+          "cross": 0.5750302250765126,
+          "delta": 0.251
+        }
+      },
+      "max_abs_delta": 0.3333,
+      "answer": "根据【资料 1】，MQ 普遍提供至少一次（at-least-once）投递，重复消息是常态，幂等需在业务侧保证。常用手段包括：\n\n- **唯一业务 ID + 去重表/Redis SETNX**：消费前先判重，已处理则跳过。\n- **状态机只允许合法流转**：重复消息因状态不满足条件而被拒绝。\n- **数据库唯一索引**：靠约束兜底防重复写入。\n- **乐观锁版本号**：更新时校验版本，避免重复生效。\n- **本地消息表 + 对账**：保证最终一致；消费与落库尽量设计在同一事务边界内。\n- 订单场景中客户端生成 requestId 作为幂等键，是同一思路在 HTTP 接口上的应用。"
+    },
+    {
+      "id": "qa-08",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.991675121524476,
+          "cross": 0.8559360113554559,
+          "delta": 0.1357
+        }
+      },
+      "max_abs_delta": 0.1357,
+      "answer": "常见的限流算法及优缺点如下：\n\n- **固定窗口**：实现简单，但窗口边界存在 2 倍突刺问题。\n- **滑动窗口**：能平滑边界问题，可用 Redis ZSet 实现，但内存成本稍高。\n- **漏桶**：以恒定速率出水，流量平滑，但无法应对合理突发。\n- **令牌桶**：桶中攒令牌，允许一定突发，是最常用的方案（如 Nginx limit_req、Guava RateLimiter）。\n\n此外，分布式限流可用 Lua 脚本把“取令牌+记录”做成原子操作。"
+    },
+    {
+      "id": "qa-09",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9769820073607653,
+          "cross": 0.7951241104728973,
+          "delta": 0.1819
+        }
+      },
+      "max_abs_delta": 0.1819,
+      "answer": "根据【资料 1】，优化 Docker 镜像体积与构建速度的要点如下：\n\n1. **选精简基础镜像**：如 `python:3.11-slim`，并用多阶段构建把编译依赖与运行时分离。\n2. **合理利用层缓存**：变化少的依赖安装层放在前面，COPY 源码放在后面；先拷贝 pyproject/lock 文件安装依赖。\n3. **用 .dockerignore 排除**：排除 .venv、.git、缓存目录等；编译后清理 apt/pip 缓存。\n4. **运行时配置**：容器以非 root 运行，配置 healthcheck；compose 中用 depends_on + condition 控制启动顺序。"
+    },
+    {
+      "id": "qa-10",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.8421052631578947,
+          "cross": 1.0,
+          "delta": -0.1579
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9666826983573245,
+          "cross": 0.8020960871608555,
+          "delta": 0.1646
+        }
+      },
+      "max_abs_delta": 0.1646,
+      "answer": "**大模型幻觉**：指模型生成流畅但不符合事实或无依据的内容，根源是概率建模、训练知识陈旧与上下文缺失。（资料 1）\n\n**RAG 中的系统性缓解手段**（资料 1）：\n- **提供权威上下文**：用 RAG 检索材料作为依据，并要求模型“仅依据材料作答”。\n- **降低 temperature**：减少生成的随机性。\n- **要求引用来源**：让答案可追溯。\n- **输出后评测**：用 faithfulness 指标（答案能否由上下文推出）做自动评测，并结合人工抽检。\n- **检索不到时显式拒答**：让模型表达“知识库未提及”，而非强答。\n- **高风险场景加规则/工具校验**。"
+    },
+    {
+      "id": "qa-11",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.9333333333333333,
+          "cross": 1.0,
+          "delta": -0.0667
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.8055555555287036,
+          "delta": 0.1944
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8891734314014124,
+          "cross": 0.6847331725139395,
+          "delta": 0.2044
+        }
+      },
+      "max_abs_delta": 0.2044,
+      "answer": "上下文窗口受限带来的工程问题及解决办法（依据资料 1）：\n\n**工程问题**\n- 超长文档或历史对话塞不进去，超出窗口会报错或被截断。\n- 位于中间位置的信息容易被忽略（lost-in-the-middle）。\n\n**解决办法**\n- 用 RAG 只召回相关片段替代全文。\n- 历史对话做摘要压缩或滑动窗口。\n- 长文档用 map-reduce 分段处理。\n- 精确做 token 预算管理：预留输出 token，按预算裁剪证据条数。\n- 可用长上下文模型兜底，但成本与延迟更高，且不解决相关性问题。"
+    },
+    {
+      "id": "qa-12",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9982985682220556,
+          "cross": 0.7239465978239794,
+          "delta": 0.2744
+        }
+      },
+      "max_abs_delta": 0.2744,
+      "answer": "Embedding 句向量的原理：Embedding 模型把文本映射为固定维度的稠密向量，训练目标让语义相近的文本在向量空间中距离更近。\n\n余弦相似度能衡量语义相近的原因：它衡量两个向量的夹角，只看方向不看模长，因此对文本长度差异更鲁棒；语义相近的文本向量方向接近，余弦相似度就高。另外，bge-m3 等模型输出归一化后，点积即余弦相似度。\n\n补充：Embedding 属于语义模糊匹配，对精确关键词（错误码、型号等）不敏感，需要 BM25 互补。"
+    },
+    {
+      "id": "qa-13",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.8839634780175872,
+          "cross": 0.6942750249215047,
+          "delta": 0.1897
+        }
+      },
+      "max_abs_delta": 0.1897,
+      "answer": "块太大：主题不聚焦、向量表征被稀释、占用 token 预算多、定位证据粗糙。\n\n块太小：上下文不完整、语义破碎，模型拿到只言片语无法回答。\n\n常见切块策略：固定大小+重叠、按标题结构切、按语义切分；父子文档（小块检索、大块喂模型）兼顾定位与上下文。切块要保留标题、来源等元数据，并按文档类型调参；改策略后必须重跑评测对比。"
+    },
+    {
+      "id": "qa-14",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999,
+          "delta": 0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.7921367083194012,
+          "cross": 0.7734807645605084,
+          "delta": 0.0187
+        }
+      },
+      "max_abs_delta": 0.0187,
+      "answer": "RRF（Reciprocal Rank Fusion）的原理与优点如下：\n\n**原理**\n- 公式：score(d) = Σ 1/(k + rank_i(d))，即对每一路召回中该文档的排名取倒数（k 常取 60）后求和。\n- 只依赖排名，不依赖各路原始分，因此天然解决了向量余弦分与 BM25 分尺度不可比的问题。\n\n**优点**\n- 实现简单、无需训练。\n- 对异常分值鲁棒。\n- 是工业界融合多路召回最常用的基线方法。\n- k 越大，头部和尾部的权重差异越平缓；调参后仍需 Rerank 做语义精排。"
+    },
+    {
+      "id": "qa-15",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 0.8823529411764706,
+          "cross": 1.0,
+          "delta": -0.1176
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.9999999999666667,
+          "delta": -0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.9890349824077732,
+          "cross": 0.8040431149414329,
+          "delta": 0.185
+        }
+      },
+      "max_abs_delta": 0.185,
+      "answer": "**区别：**\n\n- **向量检索**：将查询和文档分别独立编码（双塔），再计算相似度。速度快，但两者之间没有交互，属于粗排。\n- **Rerank 重排**：把 query 与每个候选文档拼接后，用交叉编码器（如 bge-reranker）联合建模，捕获细粒度交互。结果更准，但算力开销大。\n\n**两阶段架构提升效果的原因：**\n\n- 工程上先用向量检索或 BM25 从海量文档中粗召回几十条，再只对这几十条做 rerank 精排，取 Top-K，从而兼顾效果与成本。\n- 这符合“召回追求高 recall，精排追求高 precision”的典型两阶段架构：粗排保证不漏掉相关文档，精排保证最终结果的准确性。"
+    },
+    {
+      "id": "qa-16",
+      "category": "qa",
+      "metrics": {
+        "faithfulness": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "context_precision": {
+          "primary": 0.9999999999,
+          "cross": 0.99999999995,
+          "delta": -0.0
+        },
+        "context_recall": {
+          "primary": 1.0,
+          "cross": 1.0,
+          "delta": 0.0
+        },
+        "answer_relevancy": {
+          "primary": 0.6695264676256801,
+          "cross": 0.6695264676256801,
+          "delta": 0.0
+        }
+      },
+      "max_abs_delta": 0.0,
+      "answer": "根据【资料 1】，RAGAS 四个核心指标分别衡量：\n\n- **Faithfulness（忠实度）**：答案中的陈述能否由检索上下文推出，衡量幻觉，是最重要的安全指标。\n- **Answer Relevancy（答案相关性）**：答案是否切题、有无答非所问或冗余。\n- **Context Precision（上下文精确率）**：召回的相关证据是否排在前面、噪声占比，反映 rerank 质量。\n- **Context Recall（上下文召回率）**：标准答案所需信息是否都被检索到，反映召回完整性。\n\n另需注意：RAGAS 依赖评委 LLM，分数受评委模型、样本构造与语言影响，应固定条件做相对比较并结合人工抽检。"
+    }
+  ]
+}

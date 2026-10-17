@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.eval.cross_judge import build_comparison, compare_metric, pearson, render_markdown
 from app.eval.dataset import (
     CATEGORIES,
     DatasetValidationError,
@@ -16,8 +17,10 @@ from app.eval.dataset import (
     validate_dataset,
 )
 from app.eval.generator import EMPTY_CONTEXT_HINT, build_generation_messages, generate_answer
+from app.eval.metrics_ragas import METRIC_KEYS, JudgeSpec, _is_rate_limited
 from app.eval.refusal import is_refusal
-from app.eval.report import build_report, mean, render_markdown
+from app.eval.report import build_report, mean
+from app.eval.report import render_markdown as render_eval_markdown
 from app.eval.runner import RowOutcome, run_pipeline
 
 DATASET_PATH = "data/eval/eval_dataset.json"
@@ -327,7 +330,7 @@ def test_build_report_pass_case_and_markdown():
     assert report["retrieval"]["source_hit_rate"] == 1.0
     assert report["baseline"]["present"] is False
 
-    md = render_markdown(report)
+    md = render_eval_markdown(report)
     assert "# RAGAS 离线评测报告" in md
     assert "faithfulness" in md and "题库外诱导题明细" in md
     assert "全部通过" in md
@@ -364,5 +367,78 @@ def test_build_report_fail_and_baseline_delta():
     deltas = report["baseline"]["deltas"]
     assert deltas["faithfulness"] == pytest.approx(-0.1, abs=1e-6)
     assert deltas["answer_relevancy"] == pytest.approx(0.05, abs=1e-6)
-    md = render_markdown(report)
+    md = render_eval_markdown(report)
     assert "未全部通过" in md and "↓0.100" in md
+
+
+def test_is_rate_limited_detects_throttling():
+    assert _is_rate_limited(RuntimeError("Error code: 429 - rate limit exceeded"))
+    assert _is_rate_limited(RuntimeError("TPM limit reached, please retry"))
+    assert not _is_rate_limited(RuntimeError("Connection reset by peer"))
+    assert not _is_rate_limited(ValueError("invalid schema"))
+
+
+# ---------- 异源 judge 交叉验证 ----------
+
+
+def test_pearson_basics():
+    assert pearson([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]) == pytest.approx(1.0)
+    assert pearson([1.0, 2.0, 3.0, 4.0], [4.0, 3.0, 2.0, 1.0]) == pytest.approx(-1.0)
+    assert pearson([1.0, 1.0, 1.0, 1.0], [1.0, 2.0, 3.0, 4.0]) is None  # 方差为 0
+    assert pearson([1.0, 2.0], [1.0, 2.0]) is None  # 样本不足
+
+
+def test_compare_metric_pairs_and_missing():
+    primary = [0.9, 0.8, None, 0.7]
+    cross = [0.8, 0.8, 0.5, 0.7]
+    out = compare_metric(primary, cross)
+    assert out["n_pairs"] == 3
+    assert out["n_missing"] == 1
+    assert out["primary_mean"] == pytest.approx(0.8)  # None 不计入
+    assert out["cross_mean"] == pytest.approx(0.7)
+    assert out["delta"] == pytest.approx(0.1, abs=1e-6)
+    assert out["mean_abs_diff"] == pytest.approx(0.0333, abs=1e-4)
+    assert out["max_abs_diff"] == pytest.approx(0.1, abs=1e-6)
+    assert out["agree_0.1"] == pytest.approx(1.0)
+    assert out["agree_0.05"] == pytest.approx(2 / 3, abs=1e-4)
+    assert out["exact"] == pytest.approx(2 / 3, abs=1e-4)
+    assert out["pearson"] == pytest.approx(0.866, abs=1e-3)
+
+
+def test_compare_metric_all_missing():
+    out = compare_metric([None], [None])
+    assert out["n_pairs"] == 0
+    assert out["mean_abs_diff"] is None
+    assert out["agree_0.1"] is None
+    assert out["pearson"] is None
+
+
+def test_build_comparison_and_render_flags_self_inflation():
+    rows = [_row("qa-01", "qa"), _row("qa-02", "qa")]
+    primary = {
+        "qa-01": dict.fromkeys(METRIC_KEYS, 0.9),
+        "qa-02": dict.fromkeys(METRIC_KEYS, 0.9),
+    }
+    cross = {
+        "qa-01": dict.fromkeys(METRIC_KEYS, 0.8),
+        "qa-02": dict.fromkeys(METRIC_KEYS, 0.8),
+    }
+    rep = build_comparison(
+        rows,
+        primary,
+        cross,
+        primary=JudgeSpec("deepseek-chat", "https://api.deepseek.com", "sk"),
+        cross=JudgeSpec("Qwen/Qwen2.5-72B-Instruct", "https://api.siliconflow.cn/v1", "sk"),
+        config={"dataset": {"executed": 2, "counts": {"qa": 2}}},
+    )
+    assert rep["n_scored"] == 2
+    assert rep["n_cells"] == 2 * len(METRIC_KEYS)
+    for key in METRIC_KEYS:
+        assert rep["self_inflation"][key] == pytest.approx(0.1, abs=1e-6)
+    assert rep["overall_cell_agreement"]["agree_0.2"] == pytest.approx(1.0)
+    assert rep["overall_cell_agreement"]["agree_0.05"] == pytest.approx(0.0)
+
+    md = render_markdown(rep)
+    assert "# RAGAS 异源 judge 交叉验证报告" in md
+    assert "Qwen/Qwen2.5-72B-Instruct" in md
+    assert "自评偏高" in md

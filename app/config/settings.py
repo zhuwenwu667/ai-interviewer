@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     llm_model_eval: str = ""
     llm_model_rewrite: str = ""
 
+    # ---------- 评测 judge（RAGAS 交叉验证）----------
+    # 留空则回落到 eval_model / deepseek_base_url / deepseek_api_key（生产零行为变化）。
+    # 仅用于离线评测的 RAGAS 评判，不影响线上面试评分链路。
+    eval_judge_model: str = ""
+    eval_judge_base_url: str = ""
+    eval_judge_api_key: str = ""
+
     # ---------- SiliconFlow ----------
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
@@ -121,6 +128,18 @@ class Settings(BaseSettings):
     @property
     def eval_model(self) -> str:
         return self.llm_model_eval or self.deepseek_model
+
+    @property
+    def judge_model(self) -> str:
+        return self.eval_judge_model or self.eval_model
+
+    @property
+    def judge_base_url(self) -> str:
+        return self.eval_judge_base_url or self.deepseek_base_url
+
+    @property
+    def judge_api_key(self) -> str:
+        return self.eval_judge_api_key or self.deepseek_api_key
 
     @property
     def rewrite_model(self) -> str:

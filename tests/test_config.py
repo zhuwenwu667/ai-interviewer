@@ -72,6 +72,50 @@ def test_model_overrides_fallback_to_default(env_without_keys):
     assert customized.question_model == "deepseek-chat"
 
 
+def test_judge_falls_back_to_eval_model_then_deepseek(env_without_keys):
+    settings = _make_settings(deepseek_api_key="sk-ds")
+    # 未配置 EVAL_JUDGE_* 时，judge 完全回落到 eval_model / DeepSeek（生产零行为变化）
+    assert settings.judge_model == settings.eval_model == "deepseek-chat"
+    assert settings.judge_base_url == settings.deepseek_base_url
+    assert settings.judge_api_key == "sk-ds"
+
+    overridden = _make_settings(
+        deepseek_api_key="sk-ds",
+        eval_judge_model="Qwen/Qwen2.5-72B-Instruct",
+        eval_judge_base_url="https://api.siliconflow.cn/v1",
+        eval_judge_api_key="sk-sf",
+    )
+    assert overridden.judge_model == "Qwen/Qwen2.5-72B-Instruct"
+    assert overridden.judge_base_url == "https://api.siliconflow.cn/v1"
+    assert overridden.judge_api_key == "sk-sf"
+    # 覆盖 judge 不影响面试评分链路所用的 eval_model
+    assert overridden.eval_model == "deepseek-chat"
+
+
+def test_resolve_judge_tracks_settings(env_without_keys):
+    from app.eval.metrics_ragas import resolve_judge
+
+    base = _make_settings(deepseek_api_key="sk-ds")
+    spec = resolve_judge(base)
+    assert (spec.model, spec.base_url, spec.api_key) == (
+        "deepseek-chat",
+        "https://api.deepseek.com",
+        "sk-ds",
+    )
+    assert "deepseek-chat" in spec.label
+
+    cross = resolve_judge(
+        _make_settings(
+            deepseek_api_key="sk-ds",
+            eval_judge_model="Qwen/Qwen2.5-72B-Instruct",
+            eval_judge_api_key="sk-sf",
+        )
+    )
+    assert cross.model == "Qwen/Qwen2.5-72B-Instruct"
+    assert cross.api_key == "sk-sf"
+    assert cross.base_url == "https://api.deepseek.com"  # 仅覆盖 model 时 base_url 仍回落
+
+
 def test_relative_paths_resolve_to_base_dir(env_without_keys):
     settings = _make_settings(sqlite_path="data/interview.db")
     resolved = settings.sqlite_path_abs

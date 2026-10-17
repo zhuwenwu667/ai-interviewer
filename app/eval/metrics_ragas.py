@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from app.config.settings import Settings
@@ -52,26 +53,56 @@ def _require_ragas() -> None:
         ) from exc
 
 
-def build_judges(settings: Settings) -> tuple[Any, Any]:
+@dataclass(frozen=True)
+class JudgeSpec:
+    """一次评判所用的 LLM 端点（模型 + OpenAI 兼容 base_url + key）。
+
+    独立出来是为了支持 RAGAS 交叉验证：同一批生成结果分别用"自评 judge"与
+    "异源 judge"打分，对比指标是否被自评模型系统性抬高。
+    """
+
+    model: str
+    base_url: str
+    api_key: str
+
+    @property
+    def label(self) -> str:
+        return f"{self.model}@{self.base_url}"
+
+
+def resolve_judge(settings: Settings) -> JudgeSpec:
+    """默认 judge：由 ``EVAL_JUDGE_*`` 覆盖，留空则回落 ``eval_model``/DeepSeek。"""
+    return JudgeSpec(
+        model=settings.judge_model,
+        base_url=settings.judge_base_url,
+        api_key=settings.judge_api_key,
+    )
+
+
+def build_judges(
+    settings: Settings, *, judge: JudgeSpec | None = None
+) -> tuple[Any, Any]:
     """构建 RAGAS 使用的评判 LLM（instructor 工厂）与 embeddings 包装器。
 
     ragas 0.4 的 collections 指标要求基于 instructor 的现代 LLM 封装，因此用
-    ``llm_factory`` 并传入指向 DeepSeek OpenAI 兼容端点的 ``AsyncOpenAI``
-    （DeepSeek 支持 function calling，instructor 默认 TOOLS 模式可用）。
+    ``llm_factory`` 并传入指向 OpenAI 兼容端点的 ``AsyncOpenAI``（DeepSeek /
+    SiliconFlow 上的 Qwen 均支持 function calling，instructor 默认 TOOLS 模式可用）。
+    ``judge`` 为 None 时使用 ``resolve_judge(settings)``。
     """
     _require_ragas()
     from openai import AsyncOpenAI
     from ragas.embeddings import embedding_factory
     from ragas.llms import llm_factory
 
+    spec = judge or resolve_judge(settings)
     chat_client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key or "missing-key",
-        base_url=settings.deepseek_base_url,
+        api_key=spec.api_key or "missing-key",
+        base_url=spec.base_url,
         timeout=120,
         max_retries=5,
     )
     judge_llm = llm_factory(
-        settings.eval_model,
+        spec.model,
         provider="openai",
         client=chat_client,
         temperature=0,
@@ -106,11 +137,20 @@ def _to_score(value: Any) -> float | None:
     return f
 
 
+def _is_rate_limited(exc: BaseException) -> bool:
+    """判定异常是否为限流（429 / TPM / rate limit），用于退避重试。"""
+    text = str(exc).lower()
+    return "429" in text or "rate limit" in text or "tpm limit" in text
+
+
 async def run_ragas_metrics(
     rows: list[RowOutcome],
     settings: Settings,
     *,
+    judge: JudgeSpec | None = None,
     max_workers: int = 8,
+    max_attempts: int = 1,
+    retry_backoff: float = 8.0,
     show_progress: bool = False,
 ) -> dict[str, dict[str, float | None]]:
     """对非 oos 且未报错的样例跑四项指标，返回 ``{row.id: {metric: score}}``。
@@ -118,6 +158,10 @@ async def run_ragas_metrics(
     ragas 0.4 的 collections 指标是 v2 体系（``ascore(**kwargs)``），与旧的
     ``evaluate``/``aevaluate`` 入口不兼容，因此这里直接并发调用每个指标的
     ``ascore``。信号量限流；单个 (样例, 指标) 评判失败记为 None，不中断整批。
+    ``judge`` 为 None 时使用默认 judge（``resolve_judge(settings)``）。
+
+    ``max_attempts`` / ``retry_backoff``：对**限流**失败做指数退避重试（默认不重试，
+    保持既有行为）。跨厂商 judge（如 SiliconFlow 上的 Qwen）TPM 配额紧，务必调大。
     """
     _require_ragas()
     from ragas.metrics.collections import (
@@ -135,7 +179,7 @@ async def run_ragas_metrics(
     if not scored_rows:
         return {}
 
-    judge_llm, judge_embeddings = build_judges(settings)
+    judge_llm, judge_embeddings = build_judges(settings, judge=judge)
     metric_objects = {
         "faithfulness": Faithfulness(llm=judge_llm),
         "context_precision": ContextPrecision(llm=judge_llm),
@@ -164,14 +208,21 @@ async def run_ragas_metrics(
 
     async def _score_one(row: RowOutcome, metric_key: str) -> float | None:
         async with semaphore:
-            try:
-                result = await metric_objects[metric_key].ascore(
-                    **_kwargs(metric_key, row)
-                )
-            except Exception as exc:  # noqa: BLE001 - 单格失败容错
-                logger.warning("RAGAS 评判失败 %s/%s: %s", row.id, metric_key, exc)
-                return None
-        return _to_score(getattr(result, "value", None))
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    result = await metric_objects[metric_key].ascore(
+                        **_kwargs(metric_key, row)
+                    )
+                except Exception as exc:  # noqa: BLE001 - 单格失败容错
+                    if attempt < max_attempts and _is_rate_limited(exc):
+                        await asyncio.sleep(retry_backoff * (2 ** (attempt - 1)))
+                        continue
+                    logger.warning(
+                        "RAGAS 评判失败 %s/%s: %s", row.id, metric_key, exc
+                    )
+                    return None
+                return _to_score(getattr(result, "value", None))
+        return None
 
     tasks = {
         (row.id, key): _score_one(row, key)

@@ -405,6 +405,57 @@
   - `rule` TR-15.1: 消融脚本可在同一评测集上跑出全部档位对照，且各档指标/延迟/token 有据可查（报告文件可复核）。
   - `rule` TR-15.2: 会话实测脚本可完成多场完整面试并输出单场成本、端到端耗时与节点级耗时，数字可由埋点文件逐条复算。
 
+## Task 16: Judge 自评偏置治理——可切换独立 judge + 异源 judge 交叉验证（作品集增强 P1）
+- **Status**: `completed`（配置、脚本、交叉验证实验、文档与证据全部完成；数字全部来自实际运行）
+- **Completion Evidence**:
+  - **可切换独立 judge 配置**：`settings.py` 新增 `EVAL_JUDGE_MODEL / EVAL_JUDGE_BASE_URL / EVAL_JUDGE_API_KEY` 与派生属性
+    `judge_model / judge_base_url / judge_api_key`（**全部留空则依次回落** `LLM_MODEL_EVAL`→`deepseek_model`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_API_KEY`，
+    即默认与既有行为**逐字一致、生产零变化**）。`app/eval/metrics_ragas.py` 新增 `JudgeSpec` + `resolve_judge(settings)`，
+    `build_judges`/`run_ragas_metrics` 支持注入 `judge`（仅离线评测路径，不触碰线上评分链路）。`.env.example` 同步补三项说明。
+  - **异源 judge 可用性实测（2026-10-18）**：探测 SiliconFlow 模型清单（45 个 Qwen 系）；
+    对候选逐一实测 **function calling + 吞吐**：`Qwen/Qwen2.5-72B-Instruct` tool_call=True 1.7s、5/5 串行请求平均 2.6s；
+    `Qwen3-30B-A3B-Instruct-2507` tool_call=True 4.2s；`Qwen2.5-32B-Instruct` tool_call=True 1.9s；
+    **`Qwen2.5-7B-Instruct` tool_call=False**（不能作 ragas instructor judge）。最终选 `Qwen/Qwen2.5-72B-Instruct`。
+  - **TR-16.1 交叉验证已实测（2026-10-18，同一 36 条生成结果 / 144 个指标单元，0 缺失）**：
+    报告 `data/eval/reports/judge_cross_check_20261018_014148.{md,json}`；脚本 `scripts/run_judge_cross_check.py`。
+    自评 `deepseek-chat` vs 异源 `Qwen/Qwen2.5-72B-Instruct`（Δ=自评−异源，>0=自评偏高）：
+
+    | 指标 | 自评均值 | 异源均值 | Δ | 平均绝对差 | ≤0.10 一致 | Pearson |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | faithfulness | 0.973 | 1.000 | -0.027 | 0.027 | 88.9% | N/A（异源无方差） |
+    | context_precision | 0.928 | 0.914 | +0.015 | 0.024 | 91.7% | 0.866 |
+    | context_recall | 1.000 | 1.000 | 0.000 | 0.000 | 100.0% | N/A（双方恒定） |
+    | answer_relevancy | 0.899 | 0.790 | **+0.108** | 0.112 | **55.6%** | 0.638 |
+
+    全体 144 格：|Δ|≤0.05 **76.4%**、≤0.10 **84.0%**、≤0.20 **93.8%**。
+    **结论（如实，不美化）**：`faithfulness`/`context_precision`/`context_recall` 对换 judge 稳健 → **未见自评抬高**；
+    仅 `answer_relevancy` 自评显著偏高（+0.108、一致率 55.6%、Pearson 0.638），该项绝对值**降级为趋势信号**、不作硬门槛。
+  - **限流治理**：跨厂商 judge 触发 SiliconFlow `429 TPM limit reached`；`run_ragas_metrics` 新增**仅对限流失败**的指数退避重试
+    （`max_attempts`/`retry_backoff`，默认 1/不重试＝不改既有行为），脚本对异源 judge **默认串行**（`--cross-workers=1`）。
+    串行后重跑：**0 次 429、0 个单元格丢失、144/144 全满**。
+  - **文档回写**：README 新增 §6.3（交叉验证表 + 结论 + 配套改动）与 §7 新增「为何做异源 judge 交叉验证」取舍条目；
+    `docs/interview_talk.md` 新增 §4.7 脚本入口、§5.3 量化小节、§5 基线补 `answer_relevancy` 克制解读注、
+    §6.1 新增第 ⑤ 篇故障复盘（TPM 限流「越重试越糟」）、Q6/Q7 补充「自评偏置」应答口径。
+- **Progress Notes**（实现要点存档）:
+  - 交叉验证**不重新生成答案**：同一批 `RowOutcome` 交两个 judge 打分，故所有 Δ **只归因于 judge 本身**，方法上最干净。
+  - `answer_relevancy` 自评偏高**不作删除处理**：它是真实存在且可解释的现象（依赖「人造问题 + embedding 相似度」，对 judge 切题判准敏感），
+    正确做法是**披露 + 限定用法**，而非隐藏或换掉指标。
+  - Pearson 在 `faithfulness`/`context_recall` 上为 N/A 属**预期**：异源 judge 在 36 条上给出**恒定值**（1.000）→ 方差为 0，相关系数无定义；
+    `compare_metric` 已对「样本不足 / 方差为 0」返回 None 而非抛错或报 NaN。
+  - 串行 72B 判分耗时较长（`context_precision`/`context_recall` 需按 context/reference 多次 LLM 调用），
+    故脚本默认单并发；这是**限流下的正确取舍**（加并发会 429、重试还会重发整段 prompt 放大配额消耗）。
+- **Priority**: high
+- **Depends On**: Task 11, Task 15
+- **Description**:
+  - 新增可切换的独立 judge 配置（默认回落 `eval_model`，生产零变化），使 RAGAS 评判模型可与线上评分模型解耦。
+  - 引入**另一厂商、另一模型族**的 judge，对**同一批生成结果**再打一遍分，量化 per-metric 均值差 Δ 与逐条一致率，
+    把「自评偏置」从口头辩解变成**可复核的数字**。
+  - 结论与局限回写 README 与面试讲解材料；对受 judge 影响大的指标（`answer_relevancy`）明确限定解读方式。
+- **Acceptance Criteria Addressed**: AC-9, AC-12
+- **Test Requirements**:
+  - `rule` TR-16.1: 同一批生成结果可被两套 judge 分别打分，输出 per-metric Δ、平均/最大绝对差、多档一致率与 Pearson（报告可复核）。
+  - `rule` TR-16.2: `EVAL_JUDGE_*` 全部留空时评测行为与改动前一致（离线单测覆盖默认回落链路）。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -419,3 +470,4 @@
 | D9 | Task 11（评测）+ Task 12（可观测） |
 | D10 | Task 13（部署上线）、Task 14（收口） |
 | D11 | Task 15（作品集增强：检索消融对照 + 真实会话成本/延迟实测） |
+| D12 | Task 16（作品集增强：judge 自评偏置治理 + 异源 judge 交叉验证） |
