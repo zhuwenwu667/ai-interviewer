@@ -13,8 +13,19 @@
 # ============================================================
 FROM python:3.11-slim AS builder
 
+# PyPI 源：默认走清华 TUNA 镜像。实测国内服务器直连 files.pythonhosted.org
+# 仅约 70 KB/s（17.9MB 的 uv 包耗时 265s），依赖层要下 ~250MB，会拖到近一小时；
+# 换国内镜像可提升 5-10 倍。
+# 海外环境或需官方源时覆盖：
+#   docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+#                --build-arg UV_INDEX_URL=https://pypi.org/simple .
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    UV_INDEX_URL=${UV_INDEX_URL}
 # uv 版本与开发环境保持一致（uv --version = 0.13.0），保证锁定解析结果一致
 RUN pip install "uv==0.13.0"
 
