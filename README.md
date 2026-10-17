@@ -250,7 +250,21 @@ docker compose version                                        # 确认 compose �
 
    `mirror.ccs.tencentyun.com` 是腾讯云内网镜像源（在其云主机上可用）；换成其他厂商/自建加速地址时，只需改 `registry-mirrors` 数组。
 
-2. **构建期从 PyPI 下载依赖可能较慢**：`Dockerfile` 中 `pip install uv` 与 `uv sync` 都访问 PyPI，国内服务器要下载 80+ 个包（含较大的 `pyarrow`），耗时较长但通常能完成。若因超时导致构建失败，可配置构建期代理，或改用国内 PyPI 索引（见 `uv` 文档的 `UV_INDEX_URL`）。
+2. **构建期从 PyPI 下载依赖**：`Dockerfile` **已内置**国内镜像，无需手工配置——它把 `pip` / `uv` 的索引设为清华 TUNA，并在构建期把 `uv.lock` 内写死的官方 CDN 绝对直链（`files.pythonhosted.org`）改写为同结构的镜像主机。
+
+   后者是必须的：`--frozen` 模式下 `uv` 按锁文件里的 URL **直接下载**，**只设 `UV_INDEX_URL` 不生效**；国内直连该 CDN 实测仅约 70 KB/s，会把依赖层拖到超时（实测 `uv sync` 7 分钟无进展）。
+
+   海外环境或想改回官方源时用构建参数覆盖（`UV_MIRROR_HOST` 需是与官方 CDN 路径结构一致的镜像主机）：
+
+   ```bash
+   docker build \
+     --build-arg PIP_INDEX_URL=https://pypi.org/simple \
+     --build-arg UV_INDEX_URL=https://pypi.org/simple \
+     --build-arg UV_MIRROR_HOST=files.pythonhosted.org \
+     -t ai-interviewer:latest .
+   ```
+
+   > 实测（腾讯云 2C4G / 广州）：改写镜像主机后 `uv sync` **32 秒完成**；镜像文件与官方字节一致，`sha256` 校验不受影响。
 
 ### 10.4 配置密钥
 
@@ -320,3 +334,27 @@ docker run --rm -v ai-interviewer_app_db:/data -v "$PWD":/backup alpine \
 ```
 
 恢复：将上述归档解回同名卷即可（先 `docker compose down`）。
+
+### 10.10 可选：SSH 公钥免密登录（便于脚本化运维）
+
+腾讯云轻量服务器的网页终端（OrcaTerm）可用，但**长文本粘贴易被截断**；想用脚本化运维建议装公钥后走 `ssh -i`：
+
+```powershell
+# 本地生成（Windows PowerShell 需用 --% 才能传空口令）
+ssh-keygen --% -q -t ed25519 -N "" -f $env:TEMP\iv_ssh\id_ed25519 -C deploy
+```
+
+```bash
+# 在服务器网页终端执行一次：把上一步生成的 id_ed25519.pub 内容追加进去
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo '<id_ed25519.pub 内容>' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+之后本地即可非交互执行（无需密码，也不必改用网页终端）：
+
+```powershell
+ssh -i $env:TEMP\iv_ssh\id_ed25519 -o BatchMode=yes ubuntu@<公网IP> "cd ~/ai-interviewer && bash deploy/deploy.sh"
+```
+
+> 实测提示：国内服务器 `git pull` 偶发 `RPC failed; curl 28 GnuTLS recv error (-110)`，
+> 执行 `git config --global http.version HTTP/1.1` 后即可稳定拉取。
