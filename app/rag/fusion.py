@@ -24,3 +24,19 @@ def rrf_fuse(rankings: list[list[str]], k: int = 60) -> list[tuple[str, float]]:
         for rank, doc_id in enumerate(ranking, start=1):
             scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
     return sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+
+
+def concat_fuse(rankings: list[list[str]]) -> list[tuple[str, float]]:
+    """朴素融合基线：按各路先后顺序拼接收首见文档，去重、不重排。
+
+    仅用于消融实验对照（不引入任何名次／分值信息），生产走 :func:`rrf_fuse`。
+    返回 ``(文档 ID, 0.0)`` 列表，顺序即拼接顺序。
+    """
+    seen: set[str] = set()
+    out: list[tuple[str, float]] = []
+    for ranking in rankings:
+        for doc_id in ranking:
+            if doc_id not in seen:
+                seen.add(doc_id)
+                out.append((doc_id, 0.0))
+    return out

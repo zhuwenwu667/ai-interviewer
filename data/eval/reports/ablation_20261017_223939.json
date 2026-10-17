@@ -1,0 +1,206 @@
+{
+  "generated_at": "2026-10-17T22:39:39+08:00",
+  "n_questions": 43,
+  "pricing": {
+    "input_cny_per_m": 2.0,
+    "output_cny_per_m": 8.0,
+    "model": "deepseek-chat"
+  },
+  "configs": [
+    {
+      "config": "dense",
+      "stages": {
+        "rewrite": false,
+        "bm25": false,
+        "rrf": false,
+        "rerank": false
+      },
+      "agentic": false,
+      "n": 43,
+      "errors": 0,
+      "source_hit_rate": 1.0,
+      "metrics": {
+        "faithfulness": 0.9738847653321339,
+        "context_precision": 0.8193672838788176,
+        "context_recall": 1.0,
+        "answer_relevancy": 0.8818192299595875
+      },
+      "oos_refusal_rate": 1.0,
+      "mean_rounds": 1.0,
+      "mean_contexts": 6.0,
+      "latency": {
+        "pipeline_total_s": 13.4,
+        "pipeline_per_q_s": 0.312,
+        "ragas_total_s": 735.0
+      },
+      "tokens": {
+        "llm_calls": 43,
+        "prompt_tokens": 37723,
+        "completion_tokens": 3921,
+        "total_tokens": 41644,
+        "llm_ms_mean": 1026.7,
+        "llm_ms_p95": 1477.5,
+        "rerank_ms_mean": null,
+        "rewrite_ms_mean": null,
+        "est_cost_cny_total": 0.1068,
+        "est_cost_cny_per_q": 0.002484
+      }
+    },
+    {
+      "config": "+bm25",
+      "stages": {
+        "rewrite": false,
+        "bm25": true,
+        "rrf": false,
+        "rerank": false
+      },
+      "agentic": false,
+      "n": 43,
+      "errors": 0,
+      "source_hit_rate": 1.0,
+      "metrics": {
+        "faithfulness": 0.9839743589743589,
+        "context_precision": 0.8239969135084473,
+        "context_recall": 1.0,
+        "answer_relevancy": 0.8914186572183779
+      },
+      "oos_refusal_rate": 1.0,
+      "mean_rounds": 1.0,
+      "mean_contexts": 6.0,
+      "latency": {
+        "pipeline_total_s": 15.3,
+        "pipeline_per_q_s": 0.357,
+        "ragas_total_s": 812.1
+      },
+      "tokens": {
+        "llm_calls": 43,
+        "prompt_tokens": 37723,
+        "completion_tokens": 3983,
+        "total_tokens": 41706,
+        "llm_ms_mean": 1182.0,
+        "llm_ms_p95": 1745.4,
+        "rerank_ms_mean": null,
+        "rewrite_ms_mean": null,
+        "est_cost_cny_total": 0.1073,
+        "est_cost_cny_per_q": 0.002496
+      }
+    },
+    {
+      "config": "+rrf",
+      "stages": {
+        "rewrite": false,
+        "bm25": true,
+        "rrf": true,
+        "rerank": false
+      },
+      "agentic": false,
+      "n": 43,
+      "errors": 0,
+      "source_hit_rate": 1.0,
+      "metrics": {
+        "faithfulness": 0.9848856209150326,
+        "context_precision": 0.9245370369556246,
+        "context_recall": 1.0,
+        "answer_relevancy": 0.8798221169521507
+      },
+      "oos_refusal_rate": 1.0,
+      "mean_rounds": 1.0,
+      "mean_contexts": 6.0,
+      "latency": {
+        "pipeline_total_s": 19.5,
+        "pipeline_per_q_s": 0.453,
+        "ragas_total_s": 652.7
+      },
+      "tokens": {
+        "llm_calls": 43,
+        "prompt_tokens": 38825,
+        "completion_tokens": 4046,
+        "total_tokens": 42871,
+        "llm_ms_mean": 1349.4,
+        "llm_ms_p95": 2160.4,
+        "rerank_ms_mean": null,
+        "rewrite_ms_mean": null,
+        "est_cost_cny_total": 0.11,
+        "est_cost_cny_per_q": 0.002559
+      }
+    },
+    {
+      "config": "+rerank",
+      "stages": {
+        "rewrite": false,
+        "bm25": true,
+        "rrf": true,
+        "rerank": true
+      },
+      "agentic": false,
+      "n": 43,
+      "errors": 0,
+      "source_hit_rate": 1.0,
+      "metrics": {
+        "faithfulness": 0.9664440135028372,
+        "context_precision": 0.935455246836083,
+        "context_recall": 1.0,
+        "answer_relevancy": 0.8832958704895942
+      },
+      "oos_refusal_rate": 1.0,
+      "mean_rounds": 1.0,
+      "mean_contexts": 6.0,
+      "latency": {
+        "pipeline_total_s": 16.5,
+        "pipeline_per_q_s": 0.384,
+        "ragas_total_s": 658.6
+      },
+      "tokens": {
+        "llm_calls": 43,
+        "prompt_tokens": 40522,
+        "completion_tokens": 4155,
+        "total_tokens": 44677,
+        "llm_ms_mean": 1052.1,
+        "llm_ms_p95": 1645.7,
+        "rerank_ms_mean": 304.2,
+        "rewrite_ms_mean": null,
+        "est_cost_cny_total": 0.1143,
+        "est_cost_cny_per_q": 0.002658
+      }
+    },
+    {
+      "config": "+agentic",
+      "stages": {
+        "rewrite": true,
+        "bm25": true,
+        "rrf": true,
+        "rerank": true
+      },
+      "agentic": true,
+      "n": 43,
+      "errors": 0,
+      "source_hit_rate": 1.0,
+      "metrics": {
+        "faithfulness": 0.9807381674725867,
+        "context_precision": 0.9368441357230122,
+        "context_recall": 0.9930555555555556,
+        "answer_relevancy": 0.8830426291012697
+      },
+      "oos_refusal_rate": 1.0,
+      "mean_rounds": 1.6046511627906976,
+      "mean_contexts": 6.0,
+      "latency": {
+        "pipeline_total_s": 98.0,
+        "pipeline_per_q_s": 2.278,
+        "ragas_total_s": 504.1
+      },
+      "tokens": {
+        "llm_calls": 181,
+        "prompt_tokens": 75250,
+        "completion_tokens": 12322,
+        "total_tokens": 87572,
+        "llm_ms_mean": 1320.0,
+        "llm_ms_p95": 2205.6,
+        "rerank_ms_mean": 703.7,
+        "rewrite_ms_mean": 1365.3,
+        "est_cost_cny_total": 0.2491,
+        "est_cost_cny_per_q": 0.005792
+      }
+    }
+  ]
+}

@@ -1,0 +1,285 @@
+{
+  "generated_at": "2026-10-17T23:09:55+08:00",
+  "sessions": 6,
+  "questions_per_session": 5,
+  "pricing": {
+    "input_cny_per_m": 2.0,
+    "output_cny_per_m": 8.0
+  },
+  "raw_sessions": [
+    {
+      "session_id": "a9fa3de5e8164d99a0ca359c060013ba",
+      "track": "Python 后端开发",
+      "rounds": 6,
+      "mean_score": 1.0,
+      "greeting_ms": 11277.1,
+      "turn_ms": [
+        1724.3,
+        1243.9,
+        13269.3,
+        1056.1,
+        1278.3,
+        12247.4
+      ],
+      "turn_mean_ms": 5136.5,
+      "finish_ms": 7443.7,
+      "total_s": 49.54
+    },
+    {
+      "session_id": "2ff7d5ab3f0e462585c727c78796b3c7",
+      "track": "AI 应用开发",
+      "rounds": 6,
+      "mean_score": 1.2,
+      "greeting_ms": 11189.8,
+      "turn_ms": [
+        1530.4,
+        1466.6,
+        13624.3,
+        1397.9,
+        1261.5,
+        12209.4
+      ],
+      "turn_mean_ms": 5248.4,
+      "finish_ms": 8637.7,
+      "total_s": 51.32
+    },
+    {
+      "session_id": "784ce95e80ff4a77af870939efb03bf1",
+      "track": "数据工程",
+      "rounds": 6,
+      "mean_score": 1.2,
+      "greeting_ms": 10592.1,
+      "turn_ms": [
+        1296.8,
+        1512.6,
+        11990.8,
+        1304.3,
+        1399.6,
+        11669.2
+      ],
+      "turn_mean_ms": 4862.2,
+      "finish_ms": 5815.5,
+      "total_s": 45.58
+    },
+    {
+      "session_id": "265f0c0163f9442dbab919013d909a03",
+      "track": "全栈开发",
+      "rounds": 6,
+      "mean_score": 1.4,
+      "greeting_ms": 13101.9,
+      "turn_ms": [
+        1721.5,
+        1267.9,
+        11464.6,
+        1260.9,
+        1364.9,
+        12112.1
+      ],
+      "turn_mean_ms": 4865.3,
+      "finish_ms": 7770.0,
+      "total_s": 50.06
+    },
+    {
+      "session_id": "5fa038e511f44008bf32cd06341852d1",
+      "track": "Python 后端开发",
+      "rounds": 6,
+      "mean_score": 1.0,
+      "greeting_ms": 12006.7,
+      "turn_ms": [
+        1216.5,
+        1455.5,
+        12127.5,
+        983.0,
+        1037.3,
+        13021.0
+      ],
+      "turn_mean_ms": 4973.5,
+      "finish_ms": 7092.1,
+      "total_s": 48.94
+    },
+    {
+      "session_id": "0e1f38d64775465283426cb77dd2ff08",
+      "track": "AI 应用开发",
+      "rounds": 6,
+      "mean_score": 1.4,
+      "greeting_ms": 10650.4,
+      "turn_ms": [
+        1389.6,
+        1538.7,
+        12439.9,
+        1588.3,
+        1561.2,
+        11961.3
+      ],
+      "turn_mean_ms": 5079.8,
+      "finish_ms": 5806.8,
+      "total_s": 46.94
+    }
+  ],
+  "aggregate": {
+    "per_session": [
+      {
+        "session_id": "a9fa3de5e8164d99a0ca359c060013ba",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 12140,
+        "completion_tokens": 4405,
+        "total_tokens": 16545,
+        "est_cost_cny": 0.05952,
+        "total_s": 49.54
+      },
+      {
+        "session_id": "2ff7d5ab3f0e462585c727c78796b3c7",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.2,
+        "prompt_tokens": 8857,
+        "completion_tokens": 3924,
+        "total_tokens": 12781,
+        "est_cost_cny": 0.049106,
+        "total_s": 51.32
+      },
+      {
+        "session_id": "784ce95e80ff4a77af870939efb03bf1",
+        "track": "数据工程",
+        "rounds": 6,
+        "mean_score": 1.2,
+        "prompt_tokens": 9970,
+        "completion_tokens": 3616,
+        "total_tokens": 13586,
+        "est_cost_cny": 0.048868,
+        "total_s": 45.58
+      },
+      {
+        "session_id": "265f0c0163f9442dbab919013d909a03",
+        "track": "全栈开发",
+        "rounds": 6,
+        "mean_score": 1.4,
+        "prompt_tokens": 10556,
+        "completion_tokens": 3998,
+        "total_tokens": 14554,
+        "est_cost_cny": 0.053096,
+        "total_s": 50.06
+      },
+      {
+        "session_id": "5fa038e511f44008bf32cd06341852d1",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 11467,
+        "completion_tokens": 4133,
+        "total_tokens": 15600,
+        "est_cost_cny": 0.055998,
+        "total_s": 48.94
+      },
+      {
+        "session_id": "0e1f38d64775465283426cb77dd2ff08",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.4,
+        "prompt_tokens": 9335,
+        "completion_tokens": 3425,
+        "total_tokens": 12760,
+        "est_cost_cny": 0.04607,
+        "total_s": 46.94
+      }
+    ],
+    "cost_cny": {
+      "mean": 0.05211,
+      "median": 0.051101,
+      "min": 0.04607,
+      "max": 0.05952
+    },
+    "total_tokens": {
+      "mean": 14304.3,
+      "min": 12760,
+      "max": 16545
+    },
+    "total_s": {
+      "mean": 48.73,
+      "p50": 48.9,
+      "max": 51.32
+    },
+    "node": {
+      "node.ask_question": {
+        "count": 18,
+        "mean_ms": 10736.2,
+        "p50_ms": 10616.6,
+        "p95_ms": 11758.0
+      },
+      "node.assess_answer": {
+        "count": 36,
+        "mean_ms": 1365.3,
+        "p50_ms": 1365.7,
+        "p95_ms": 1644.6
+      },
+      "node.final_evaluation": {
+        "count": 6,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "node.followup": {
+        "count": 24,
+        "mean_ms": 3.4,
+        "p50_ms": 3.3,
+        "p95_ms": 4.3
+      },
+      "node.greeting": {
+        "count": 6,
+        "mean_ms": 1158.3,
+        "p50_ms": 1002.9,
+        "p95_ms": 1564.6
+      },
+      "node.receive_answer": {
+        "count": 36,
+        "mean_ms": 2.6,
+        "p50_ms": 2.6,
+        "p95_ms": 3.4
+      },
+      "node.report": {
+        "count": 6,
+        "mean_ms": 7088.3,
+        "p50_ms": 7086.5,
+        "p95_ms": 8632.2
+      }
+    },
+    "llm": {
+      "purpose": {
+        "question": {
+          "calls": 24,
+          "prompt_tokens": 7748,
+          "completion_tokens": 2856
+        },
+        "rewrite": {
+          "calls": 54,
+          "prompt_tokens": 7058,
+          "completion_tokens": 3239
+        },
+        "eval": {
+          "calls": 96,
+          "prompt_tokens": 47519,
+          "completion_tokens": 17406
+        }
+      },
+      "duration": {
+        "count": 174,
+        "mean_ms": 1424.0,
+        "p50_ms": 1235.2,
+        "p95_ms": 1843.2
+      }
+    },
+    "rerank": {
+      "count": 54,
+      "mean_ms": 458.0,
+      "p50_ms": 384.6,
+      "p95_ms": 741.4
+    },
+    "recall_returned": {
+      "mean": 6.0,
+      "min": 6,
+      "max": 6
+    }
+  }
+}

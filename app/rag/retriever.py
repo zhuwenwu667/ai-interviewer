@@ -21,12 +21,28 @@ from app.core.llm import DeepSeekChatClient
 from app.core.reranker import SiliconFlowReranker
 from app.observability.tracer import get_tracer
 from app.rag.bm25 import BM25Index
-from app.rag.fusion import rrf_fuse
+from app.rag.fusion import concat_fuse, rrf_fuse
 from app.rag.models import Chunk
 from app.rag.rewrite import QueryRewriter
 from app.storage.qdrant_store import QdrantStore
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievalStages:
+    """检索管线各阶段的开关，仅用于消融对照；默认全开＝生产行为。
+
+    - ``rewrite``：多查询改写 + HyDE（需 llm）；关闭则只用原查询；
+    - ``bm25``：关键词路召回；
+    - ``rrf``：融合算法（关闭退化为按路拼接的朴素基线）；
+    - ``rerank``：交叉编码器精排（关闭则直接采用融合顺序）。
+    """
+
+    rewrite: bool = True
+    bm25: bool = True
+    rrf: bool = True
+    rerank: bool = True
 
 
 @dataclass
@@ -88,6 +104,7 @@ class Retriever:
         reranker: SiliconFlowReranker,
         llm: DeepSeekChatClient | None = None,
         bm25_index: BM25Index | None = None,
+        stages: RetrievalStages | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -95,6 +112,7 @@ class Retriever:
         self._reranker = reranker
         self._rewriter = QueryRewriter(llm, settings) if llm is not None else None
         self._bm25 = bm25_index or BM25Index()
+        self._stages = stages or RetrievalStages()
 
     def refresh_bm25(self) -> int:
         """从向量库全量重建 BM25 索引（摄入 / 重建后调用），返回索引 chunk 数。"""
@@ -109,15 +127,16 @@ class Retriever:
         top_k: int | None = None,
     ) -> RetrievalResult:
         settings = self._settings
+        stages = self._stages
         final_k = top_k or settings.retrieval_final_top_k
-        if self._bm25.size == 0:
+        if stages.bm25 and self._bm25.size == 0:
             refreshed = self.refresh_bm25()
             logger.info("BM25 索引为空，已自动重建（%d chunks）", refreshed)
 
         # 1) 查询改写
         vector_queries = [query]
         hyde_answer: str | None = None
-        if self._rewriter is not None:
+        if self._rewriter is not None and stages.rewrite:
             with get_tracer().span(
                 "rewrite.multi_query", n=settings.retrieval_multi_query_n
             ) as rw_span:
@@ -151,29 +170,36 @@ class Retriever:
         # 3) BM25 路：原查询精确匹配（改写查询对关键词检索收益低且引入噪声）
         kb_filter = set(kb_types) if kb_types else None
         bm25_ranking: list[str] = []
-        for chunk_id, rank in self._bm25.search(query, settings.retrieval_bm25_top_k):
-            chunk = self._bm25.get(chunk_id)
-            if chunk is None or (kb_filter is not None and chunk.kb_type not in kb_filter):
-                continue
-            bm25_ranking.append(chunk_id)
-            entry = entries.get(chunk_id)
-            if entry is None:
-                entry = entries[chunk_id] = RetrievedChunk(chunk=chunk)
-            entry.bm25_rank = rank
-        rankings.append(bm25_ranking)
+        if stages.bm25:
+            for chunk_id, rank in self._bm25.search(query, settings.retrieval_bm25_top_k):
+                chunk = self._bm25.get(chunk_id)
+                if chunk is None or (kb_filter is not None and chunk.kb_type not in kb_filter):
+                    continue
+                bm25_ranking.append(chunk_id)
+                entry = entries.get(chunk_id)
+                if entry is None:
+                    entry = entries[chunk_id] = RetrievedChunk(chunk=chunk)
+                entry.bm25_rank = rank
+            rankings.append(bm25_ranking)
         bm25_hit_count = len(bm25_ranking)
 
-        # 4) RRF 融合
-        fused = rrf_fuse(rankings, k=settings.retrieval_rrf_k)
+        # 4) 融合：RRF（默认）或按路拼接的朴素基线（消融）
+        fused = (
+            rrf_fuse(rankings, k=settings.retrieval_rrf_k)
+            if stages.rrf
+            else concat_fuse(rankings)
+        )
         for chunk_id, score in fused:
             entries[chunk_id].rrf_score = score
         fused_ids = [chunk_id for chunk_id, _ in fused]
         candidate_n = min(len(fused_ids), max(final_k * 4, 20))
         candidates = fused_ids[:candidate_n]
 
-        # 5) Rerank 精排取 Top-K
+        # 5) Rerank 精排取 Top-K（关闭时直接采用融合顺序）
         ordered: list[RetrievedChunk] = []
-        if candidates:
+        rerank_candidate_count = 0
+        if candidates and stages.rerank:
+            rerank_candidate_count = len(candidates)
             with get_tracer().span("retrieval.rerank", candidates=len(candidates)) as rr_span:
                 documents = [entries[cid].chunk.text for cid in candidates]
                 reranked = await self._reranker.rerank(query, documents, top_n=len(candidates))
@@ -186,6 +212,8 @@ class Retriever:
                     returned=len(ordered),
                     top_score=ordered[0].rerank_score if ordered else None,
                 )
+        elif candidates:
+            ordered = [entries[cid] for cid in candidates]
 
         trace = RetrievalTrace(
             original_query=query,
@@ -194,7 +222,7 @@ class Retriever:
             vector_hit_count=vector_hit_count,
             bm25_hit_count=bm25_hit_count,
             fused_count=len(fused_ids),
-            rerank_candidate_count=len(candidates),
+            rerank_candidate_count=rerank_candidate_count,
         )
         get_tracer().event(
             "retrieval.summary",
@@ -203,7 +231,7 @@ class Retriever:
             vector_hit_count=vector_hit_count,
             bm25_hit_count=bm25_hit_count,
             fused_count=len(fused_ids),
-            rerank_candidate_count=len(candidates),
+            rerank_candidate_count=rerank_candidate_count,
             returned=len(ordered[:final_k]),
             vector_queries=len(vector_queries),
             hyde_used=hyde_answer is not None,
