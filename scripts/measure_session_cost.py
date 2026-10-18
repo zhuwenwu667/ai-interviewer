@@ -27,7 +27,9 @@ from datetime import datetime
 
 sys.path.insert(0, ".")
 
+from app.agent.context import ContextBudget  # noqa: E402
 from app.agent.graph import InterviewEngine  # noqa: E402
+from app.agent.report import LLMReportGenerator  # noqa: E402
 from app.api.deps import build_services  # noqa: E402
 from app.api.schemas import CreateSessionRequest  # noqa: E402
 from app.config import validate_runtime  # noqa: E402
@@ -94,13 +96,22 @@ def _stat(values: list[float]) -> dict:
 
 
 async def _run_sessions(
-    args: argparse.Namespace, *, cache_enabled: bool = True, reset_cache: bool = False
+    args: argparse.Namespace,
+    *,
+    cache_enabled: bool = True,
+    reset_cache: bool = False,
+    budget_enabled: bool | None = None,
 ) -> tuple[dict, list[str]]:
     settings = validate_runtime(require=("chat", "embedding"))
     services = build_services(settings)
     services.cache.set_enabled(cache_enabled)
     if reset_cache:
         services.cache.clear()
+    # P2-②：预算开关；None 表示沿用生产配置（默认开启）
+    budget = ContextBudget.from_settings(settings, enabled=budget_enabled)
+    report_generator = LLMReportGenerator(
+        services.llm, reports_dir=settings.resolve("data/reports"), budget=budget
+    )
     trace_path = settings.resolve(TRACES_FILE)
     sessions_meta: list[dict] = []
     ids: list[str] = []
@@ -115,7 +126,8 @@ async def _run_sessions(
             engine = InterviewEngine.create(
                 settings, services.repo, services.adaptive, services.llm,
                 sid, track, args.questions,
-                report_generator=services.report_generator,
+                report_generator=report_generator,
+                ctx_budget=budget,
             )
             tracer = build_tracer(settings, session_id=sid, trace_id=sid)
             token = set_tracer(tracer)
@@ -195,11 +207,14 @@ def _aggregate(data: dict) -> dict:
     rerank_dur: list[float] = []
     recall_ns: list[int] = []
     per_session_tokens: list[dict] = []
+    node_tokens: dict[str, dict[str, int]] = {}
 
     for meta in sessions:
         sid = meta["session_id"]
         s_tokens = {"prompt": 0, "completion": 0}
-        for rec in spans_by_session.get(sid, []):
+        recs = spans_by_session.get(sid, [])
+        span_names = {r["span_id"]: r["name"] for r in recs}
+        for rec in recs:
             name = rec["name"]
             fields = rec.get("fields", {})
             dur = float(rec.get("duration_ms") or 0.0)
@@ -216,6 +231,14 @@ def _aggregate(data: dict) -> dict:
                 s_tokens["prompt"] += int(fields.get("prompt_tokens") or 0)
                 s_tokens["completion"] += int(fields.get("completion_tokens") or 0)
                 llm_dur.append(dur)
+                # 归属到父节点（按 parent_id 反查节点名）
+                parent = span_names.get(rec.get("parent_id") or "", "<root>")
+                nb = node_tokens.setdefault(
+                    parent, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+                )
+                nb["calls"] += 1
+                nb["prompt_tokens"] += int(fields.get("prompt_tokens") or 0)
+                nb["completion_tokens"] += int(fields.get("completion_tokens") or 0)
             elif name == "retrieval.rerank":
                 rerank_dur.append(dur)
             elif name == "retrieval.summary":
@@ -261,6 +284,15 @@ def _aggregate(data: dict) -> dict:
             "max": max(totals_s) if totals_s else None,
         },
         "node": {name: _stat(v) for name, v in sorted(node_dur.items())},
+        "node_tokens": {
+            name: {
+                "calls": b["calls"],
+                "prompt_tokens": b["prompt_tokens"],
+                "completion_tokens": b["completion_tokens"],
+                "total_tokens": b["prompt_tokens"] + b["completion_tokens"],
+            }
+            for name, b in sorted(node_tokens.items())
+        },
         "llm": {
             "purpose": llm_by_purpose,
             "duration": _stat(llm_dur),

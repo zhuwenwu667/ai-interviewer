@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.agent.context import ContextBudget
 from app.agent.state import InterviewState
 from app.api.schemas import REPORT_DIMENSIONS, InterviewReport
 from app.config.settings import Settings
@@ -51,7 +52,7 @@ class ReportGenerationError(RuntimeError):
 # ---------------------------------------------------------------------------
 # prompt 构造与输出解析
 # ---------------------------------------------------------------------------
-def _build_messages(state: InterviewState) -> list[ChatMessage]:
+def _build_messages(state: InterviewState, budget: ContextBudget) -> list[ChatMessage]:
     qa_lines = [
         f"{i}. 问：{a.get('question', '')}\n"
         f"   答：{a.get('answer', '')}\n"
@@ -60,17 +61,18 @@ def _build_messages(state: InterviewState) -> list[ChatMessage]:
     ]
     qa_text = "\n".join(qa_lines) or "（无有效问答记录）"
 
-    # 知识来源按 chunk_id 去重（出题证据快照 + 当前证据）
+    # 知识来源按 chunk_id 去重（出题证据快照 + 当前证据），再按上下文预算裁剪条数与片段长度
     sources: dict[str, dict] = {}
     for q in state.get("questions_asked", []):
         for e in q.get("evidence", []):
             sources.setdefault(e["chunk_id"], e)
     for e in state.get("current_evidence", []):
         sources.setdefault(e["chunk_id"], e)
+    picked = budget.limit_sources(list(sources.values()))
     src_text = "\n".join(
         f"- [{e['chunk_id']}] {e.get('heading') or '（无标题）'}（{e.get('source', '')}）："
-        f"{str(e.get('text', ''))[:120]}"
-        for e in sources.values()
+        f"{str(e.get('text', ''))[: budget.report_source_snippet_chars]}"
+        for e in picked
     ) or "（无）"
 
     summary = json.dumps(state.get("evaluation_summary", {}), ensure_ascii=False)
@@ -153,21 +155,27 @@ def render_report_markdown(report: InterviewReport) -> str:
 # 生成器（符合 graph.ReportGenerator 协议：await generator(state) -> InterviewReport）
 # ---------------------------------------------------------------------------
 class LLMReportGenerator:
-    """LLM 结构化报告生成器；``reports_dir`` 为 None 时仅返回 JSON 不写 Markdown。"""
+    """LLM 结构化报告生成器；``reports_dir`` 为 None 时仅返回 JSON 不写 Markdown。
+
+    ``budget`` 控制喂入报告 prompt 的知识来源规模（P2-②）；默认沿用改造前行为，
+    生产装配（:func:`build_report_generator`）按配置开启预算。
+    """
 
     def __init__(
         self,
         llm: DeepSeekChatClient,
         reports_dir: Path | None = None,
         *,
+        budget: ContextBudget | None = None,
         max_retries: int = MAX_REPORT_RETRIES,
     ) -> None:
         self._llm = llm
         self._reports_dir = reports_dir
+        self._budget = budget or ContextBudget.legacy()
         self._max_retries = max_retries
 
     async def __call__(self, state: InterviewState) -> InterviewReport:
-        messages = _build_messages(state)
+        messages = _build_messages(state, self._budget)
         attempts = self._max_retries + 1
         last_error = "未知错误"
         for attempt in range(1, attempts + 1):
@@ -210,5 +218,9 @@ class LLMReportGenerator:
 
 
 def build_report_generator(settings: Settings, llm: DeepSeekChatClient) -> LLMReportGenerator:
-    """按项目配置装配报告生成器（Markdown 落 data/reports/）。"""
-    return LLMReportGenerator(llm, reports_dir=settings.resolve("data/reports"))
+    """按项目配置装配报告生成器（Markdown 落 data/reports/，上下文预算按配置开启）。"""
+    return LLMReportGenerator(
+        llm,
+        reports_dir=settings.resolve("data/reports"),
+        budget=ContextBudget.from_settings(settings),
+    )

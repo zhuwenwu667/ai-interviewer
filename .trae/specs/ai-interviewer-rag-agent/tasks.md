@@ -581,6 +581,55 @@
   - `rule` TR-19.2: 相似度 ≥ 阈值且 scope 相同才命中；低于阈值或不同 scope 不命中；`enabled=False` 时 get/put 为空操作。
   - `rule` TR-19.3: `clear()` 后同查询不再命中；`AdaptiveRetriever` 二次相同查询由缓存服务、底层 Retriever 仅调用一次。
 
+## Task 20: 上下文预算——压缩喂进模型的上下文体量（作品集增强 P2-②）
+
+- **Status**: `completed`（实现、单测、真实 A/B 实测取证、文档回写完成）
+- **Completion Evidence**:
+  - **实现**：新建 `app/agent/context.py`——`ContextBudget`（不可变）含 `enabled` / `evidence_snippet_chars` /
+    `asked_history_max` / `report_source_max` / `report_source_snippet_chars`，以及 `clip_evidence` / `recent_asked` /
+    `limit_sources` 三个裁剪入口；`from_settings(settings, enabled=...)` 支持运行时覆盖；`legacy()` **逐值复刻改造前行为**
+    （证据片段 150 字 / 已问问题不限 / 报告来源不限、片段 120 字）。新增配置 `CTX_BUDGET_ENABLED`（默认 true）/
+    `CTX_EVIDENCE_SNIPPET_CHARS`（100）/ `CTX_ASKED_HISTORY_MAX`（6）/ `CTX_REPORT_SOURCE_MAX`（8）/
+    `CTX_REPORT_SOURCE_SNIPPET_CHARS`（60）。
+  - **接入节点**：`app/agent/graph.py` 的 `InterviewEngine.__init__` 新增 `ctx_budget` 参数（默认按配置构造），
+    `_node_ask_question` 用 `clip_evidence` + `recent_asked`、`_node_assess_answer` 用 `clip_evidence`；
+    `app/agent/report.py` 的 `_build_messages(state, budget)` 用 `limit_sources` + `report_source_snippet_chars`，
+    `LLMReportGenerator` 新增 `budget` 参数（默认 `legacy()` 保证既有测试行为不变），`build_report_generator` 按配置开启。
+  - **单测**：新建 `tests/test_context_budget.py`（6 例）：`legacy()` 逐值复刻、`from_settings` 开关切换、
+    `recent_asked` 只保留最近 N、`limit_sources` 保序裁剪、报告 prompt 开预算时来源裁剪到 8 条且片段截断到 60 字、
+    关预算时保留全部 12 条且片段截断到 120 字。`uv run pytest -q -m "not integration"` → **153 passed / 1 skipped**；
+    `ruff check app tests scripts` → All checks passed。
+  - **真实 A/B 实测（2026-10-18，同一批真实面试、两遍均开语义缓存以隔离单一变量）**：新建
+    `scripts/measure_context_budget.py`（复用 `measure_session_cost._run_sessions`，新增 `budget_enabled` 参数；
+    并为 `_aggregate` 增加**按父节点归属 LLM token** 的 `node_tokens` 聚合）。
+    `uv run python scripts/measure_context_budget.py --sessions 6 --questions 6` →
+    报告 `data/eval/reports/context_budget_20261018_100453.{json,md}`：
+    - 全链路 LLM token **60749 → 54614（-10.1%）**；LLM 调用次数 **90 → 90**（只压缩单次上下文，不减调用）；
+    - 单场成本（估）**¥0.038388 → ¥0.034582（-9.9%）**；单场总耗时 **29.02s → 26.3s（-9.4%）**；
+    - 按节点：`node.report` **21228 → 18458（-13.0%，3538→3076/次）**、`node.assess_answer` **21902 → 19354（-11.6%，608→538/次）**、
+      `node.ask_question` 14952 → 14150（-5.4%，498→472/次）；`node.followup` 调用 0（脚本化作答未触发追问分支）；
+    - 两遍作答均分区间一致（1.0–1.6），**未观测到质量退化**。
+  - **文档回写**：README 新增 §6.7 与 §7 一条取舍、§8 命令块、CI 单测数改 153；
+    `docs/interview_talk.md` 新增 §5.7 与 Q15、Q7/Q10 更新、§6「下一步」标记完成、单测数改 153；
+    `.env.example` 补 5 项预算配置。
+- **Progress Notes**（实现要点存档）:
+  - 定位依据来自**按父节点归属 token**（新增 `node_tokens` 聚合）：先量出 token 大头在 report/assess/ask 三处的上下文，
+    再决定压缩对象，避免「盲目砍召回条数」。砍召回会伤 §6.1 已验证的 RRF 融合收益，压上下文则不动召回。
+  - `legacy()` 的存在是为了**可控 A/B**：关闭开关即逐值复刻旧行为，保证两次测量只差一个变量；
+    这也是本项目「所有优化都要有真实对照数字」原则的延续。
+  - 权衡显式记录：片段截短会削弱「追问结合简历细节」的粒度与报告依据丰富度；实测成本/耗时下降约 10%，
+    质量（均分区间）未观测到退化，但这批是脚本化作答，**不构成对真实候选人场景的强结论**，已在报告中如实标注。
+- **Priority**: medium
+- **Depends On**: Task 15, Task 19
+- **Description**:
+  - 把「喂进模型的上下文」显式预算化（证据片段长度、已问问题条数、报告来源条数与片段长度），在不减少召回的前提下压 token。
+  - 提供关闭即复刻旧行为的开关，用同环境 A/B 给出真实 token/成本/耗时降幅，并覆盖单测。
+- **Acceptance Criteria Addressed**: AC-8, AC-12
+- **Test Requirements**:
+  - `rule` TR-20.1: `ContextBudget.legacy()` 逐值等于改造前行为（150 字片段 / 不限条数 / 120 字来源片段）。
+  - `rule` TR-20.2: 开启预算时证据片段按配置截断、`recent_asked` 只保留最近 N 条、`limit_sources` 按上限保序裁剪。
+  - `rule` TR-20.3: 报告 prompt 在开/关预算两态下，知识来源条数与片段长度分别被裁剪 / 保留全量。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -599,3 +648,4 @@
 | D13 | Task 17（作品集增强：引用质量度量升级为来源 P/R/F1） |
 | D14 | Task 18（作品集增强：评测回归门禁接入 CI） |
 | D15 | Task 19（作品集增强 P2-①：语义缓存降低重复出题延迟/成本/ token） |
+| D16 | Task 20（作品集增强 P2-②：上下文预算压缩 token 与成本） |

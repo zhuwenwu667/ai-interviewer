@@ -286,7 +286,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（147 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（153 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -325,6 +325,33 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 > 完整对照见 [semantic_cache_20261018_093958.md](file:///c:/Users/50453/Desktop/面试项目/1/data/eval/reports/semantic_cache_20261018_093958.md)。
 > 复现：`uv run python scripts/measure_semantic_cache.py --sessions 6 --questions 5`（需独占 Qdrant 文件锁，先停后端）。
 
+### 6.7 上下文预算：压缩喂进模型的上下文体量（2026-10-18）
+
+**问题**：按「父节点归属 token」拆开后发现，token 花在三处——`report`（约 3.5k tok/次，知识来源清单是大头）、
+`assess_answer`（约 600 tok/次，证据片段 + 候选人回答）、`ask_question`（约 500 tok/次，证据片段 + 已问问题清单）。
+这些都是**可被预算约束的上下文**，与召回条数无关。
+
+**做法**：把「喂进模型的上下文」做成**显式预算**（[context.py](file:///c:/Users/50453/Desktop/面试项目/1/app/agent/context.py)），
+覆盖三处：证据片段截断长度（出题/研判）、已问问题回带条数（出题）、报告知识来源条数与片段长度。
+`CTX_BUDGET_ENABLED=false` 时**逐值复刻改造前行为**（150 字片段 / 不限条数 / 120 字来源片段），用于**同环境 A/B 对照**。
+
+**实测（同一批真实面试 6 场 × 6 题，两遍均开缓存、仅预算开关不同；2026-10-18）**：
+
+| 指标 | 预算关闭 | 预算打开 | 变化 |
+| --- | --- | --- | --- |
+| 全链路 LLM token | 60749 | **54614** | **-10.1%** |
+| 单场成本（估） | ¥0.038388 | **¥0.034582** | **-9.9%** |
+| 单场耗时 | 29.02s | **26.3s** | **-9.4%** |
+| LLM 调用次数 | 90 | 90 | 0（只压缩单次上下文，不减调用） |
+| `node.ask_question` token | 14952 | 14150 | -5.4%（498 → 472/次） |
+| `node.assess_answer` token | 21902 | 19354 | **-11.6%**（608 → 538/次） |
+| `node.report` token | 21228 | 18458 | **-13.0%**（3538 → 3076/次） |
+
+作答均分区间两遍一致（1.0–1.6），**未观测到质量退化**（该批为脚本化作答，不触发追问分支，故 `node.followup` 调用数 0）。
+
+> 完整对照见 [context_budget_20261018_100453.md](file:///c:/Users/50453/Desktop/面试项目/1/data/eval/reports/context_budget_20261018_100453.md)。
+> 复现：`uv run python scripts/measure_context_budget.py --sessions 6 --questions 6`（需独占 Qdrant 文件锁，先停后端）。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -362,6 +389,10 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
   6 次往返），只缓存 embedding 省不到大头。缓存整包 `AdaptiveResult`，命中即**重放**该次检索的召回+精排结果，
   用**无损序列化往返**（有单测覆盖）保证「命中结果 == 重跑结果」。带 TTL 与「知识库变更即清空」两道失效防线，
   把「缓存陈旧」这一缓存系统的经典失败模式显式管住。
+- **为何「压缩喂进模型的上下文」而不是「减少召回条数」**：§6.7 显示 token 大头在 report/assess/ask 三处的上下文体量，
+  这些是**提示词卫生问题**，与「召回几条」无关。压缩上下文可**不牺牲召回质量**地省 token（-10.1%）；
+  而砍召回条数会直接伤检索召回率（§6.1 已证 RRF 融合的价值）。故选择前者，且关闭预算即逐值复刻旧行为，
+  便于同环境 A/B 拿真实数字判定「省下的 token 是否值得损失的那点细节」。
 
 ## 8. 测试与代码质量
 
@@ -373,6 +404,7 @@ uv run pytest -q -m "not integration" --cov=app --cov-report=term-missing   # �
 uv run ruff check app tests frontend              # 静态检查
 uv run python scripts/check_eval_gate.py          # 评测回归门禁（校验最新报告，跌出阈值即非零退出）
 uv run python scripts/measure_semantic_cache.py --sessions 6 --questions 5   # 语义缓存 A/B 对照实测（需停后端）
+uv run python scripts/measure_context_budget.py --sessions 6 --questions 6   # 上下文预算 A/B 对照实测（需停后端）
 ```
 
 > CI（`.github/workflows/ci.yml`）自动执行：`ruff` → `pytest -m "not integration"` → `check_eval_gate.py`，

@@ -25,6 +25,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agent.context import ContextBudget
 from app.agent.state import InterviewState, initial_state
 from app.api.schemas import (
     REPORT_DIMENSIONS,
@@ -165,6 +166,7 @@ class InterviewEngine:
         *,
         report_generator: ReportGenerator = default_report_generator,
         event_sink: EventSink | None = None,
+        ctx_budget: ContextBudget | None = None,
     ) -> None:
         self._settings = settings
         self._repo = repo
@@ -173,6 +175,7 @@ class InterviewEngine:
         self._state = state
         self._report_generator = report_generator
         self._sink = event_sink
+        self._budget = ctx_budget or ContextBudget.from_settings(settings)
         self._graph = self._build_graph()
 
     # ------------------------------------------------------------------
@@ -343,9 +346,11 @@ class InterviewEngine:
         evidence = await self._retrieve_evidence(state)
         valid_ids = [e["chunk_id"] for e in evidence]
         snippets = "\n".join(
-            f"[{e['chunk_id']}]（{e['source']}）{e['text'][:150]}" for e in evidence
+            f"[{e['chunk_id']}]（{e['source']}）{self._budget.clip_evidence(e['text'])}"
+            for e in evidence
         )
-        asked = "；".join(q["question"] for q in state["questions_asked"]) or "（无）"
+        asked_items = self._budget.recent_asked([q["question"] for q in state["questions_asked"]])
+        asked = "；".join(asked_items) or "（无）"
         messages: list[ChatMessage] = [
             {"role": "system", "content": _ASK_SYSTEM.format(track=state["track"], round=round_no)},
             {"role": "user", "content": _ASK_USER.format(evidence=snippets, asked=asked)},
@@ -416,7 +421,8 @@ class InterviewEngine:
     async def _node_assess_answer(self, state: InterviewState) -> dict[str, Any]:
         current = state["current_answer"]
         snippets = "\n".join(
-            f"[{e['chunk_id']}] {e['text'][:150]}" for e in state.get("current_evidence", [])
+            f"[{e['chunk_id']}] {self._budget.clip_evidence(e['text'])}"
+            for e in state.get("current_evidence", [])
         ) or "（无）"
         messages: list[ChatMessage] = [
             {"role": "system", "content": _ASSESS_SYSTEM},

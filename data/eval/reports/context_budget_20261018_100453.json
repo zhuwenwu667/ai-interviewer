@@ -1,0 +1,464 @@
+{
+  "generated_at": "2026-10-18T10:04:53+08:00",
+  "sessions": 6,
+  "questions_per_session": 6,
+  "summary": {
+    "nodes": {
+      "node.ask_question": {
+        "baseline_total_tokens": 14952,
+        "budget_total_tokens": 14150,
+        "baseline_prompt": 11276,
+        "budget_prompt": 10459,
+        "calls": 30,
+        "delta_pct": -5.4,
+        "per_call_baseline": 498,
+        "per_call_budget": 472
+      },
+      "node.assess_answer": {
+        "baseline_total_tokens": 21902,
+        "budget_total_tokens": 19354,
+        "baseline_prompt": 17507,
+        "budget_prompt": 15118,
+        "calls": 36,
+        "delta_pct": -11.6,
+        "per_call_baseline": 608,
+        "per_call_budget": 538
+      },
+      "node.report": {
+        "baseline_total_tokens": 21228,
+        "budget_total_tokens": 18458,
+        "baseline_prompt": 11978,
+        "budget_prompt": 10813,
+        "calls": 6,
+        "delta_pct": -13.0,
+        "per_call_baseline": 3538,
+        "per_call_budget": 3076
+      },
+      "node.followup": {
+        "baseline_total_tokens": 0,
+        "budget_total_tokens": 0,
+        "baseline_prompt": 0,
+        "budget_prompt": 0,
+        "calls": 0,
+        "delta_pct": null,
+        "per_call_baseline": null,
+        "per_call_budget": null
+      }
+    },
+    "total_tokens": {
+      "baseline": 60749,
+      "budget": 54614,
+      "delta_pct": -10.1
+    },
+    "llm_calls": {
+      "baseline": 90,
+      "budget": 90
+    },
+    "cost_cny": {
+      "baseline_mean": 0.038388,
+      "budget_mean": 0.034582,
+      "delta_pct": -9.9
+    },
+    "total_s": {
+      "baseline_mean": 29.02,
+      "budget_mean": 26.3,
+      "delta_pct": -9.4
+    }
+  },
+  "baseline": {
+    "per_session": [
+      {
+        "session_id": "08ad138df99d499b9066511facfd8f68",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 8679,
+        "completion_tokens": 2853,
+        "total_tokens": 11532,
+        "est_cost_cny": 0.040182,
+        "total_s": 27.86
+      },
+      {
+        "session_id": "e47785ba430a471d845905fd9f35a1c4",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.4,
+        "prompt_tokens": 6710,
+        "completion_tokens": 3055,
+        "total_tokens": 9765,
+        "est_cost_cny": 0.03786,
+        "total_s": 31.73
+      },
+      {
+        "session_id": "2296b2a7d328423dbbfc7af06326bf54",
+        "track": "数据工程",
+        "rounds": 6,
+        "mean_score": 1.2,
+        "prompt_tokens": 7203,
+        "completion_tokens": 3477,
+        "total_tokens": 10680,
+        "est_cost_cny": 0.042222,
+        "total_s": 37.96
+      },
+      {
+        "session_id": "7a32bd7bd9654d07b353eefae048b28c",
+        "track": "全栈开发",
+        "rounds": 6,
+        "mean_score": 1.2,
+        "prompt_tokens": 7304,
+        "completion_tokens": 3292,
+        "total_tokens": 10596,
+        "est_cost_cny": 0.040944,
+        "total_s": 31.67
+      },
+      {
+        "session_id": "65b052fa9c174f81b5cc61913dcd8625",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 7000,
+        "completion_tokens": 2675,
+        "total_tokens": 9675,
+        "est_cost_cny": 0.0354,
+        "total_s": 21.86
+      },
+      {
+        "session_id": "ca0f643df0804c779904a15c65f2f521",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.4,
+        "prompt_tokens": 5715,
+        "completion_tokens": 2786,
+        "total_tokens": 8501,
+        "est_cost_cny": 0.033718,
+        "total_s": 23.06
+      }
+    ],
+    "cost_cny": {
+      "mean": 0.038388,
+      "median": 0.039021,
+      "min": 0.033718,
+      "max": 0.042222
+    },
+    "total_tokens": {
+      "mean": 10124.8,
+      "min": 8501,
+      "max": 11532
+    },
+    "total_s": {
+      "mean": 29.02,
+      "p50": 27.9,
+      "max": 37.96
+    },
+    "node": {
+      "node.ask_question": {
+        "count": 18,
+        "mean_ms": 3866.4,
+        "p50_ms": 1886.7,
+        "p95_ms": 10423.8
+      },
+      "node.assess_answer": {
+        "count": 36,
+        "mean_ms": 1358.5,
+        "p50_ms": 1404.5,
+        "p95_ms": 1711.3
+      },
+      "node.final_evaluation": {
+        "count": 6,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "node.followup": {
+        "count": 24,
+        "mean_ms": 5.4,
+        "p50_ms": 3.5,
+        "p95_ms": 5.8
+      },
+      "node.greeting": {
+        "count": 6,
+        "mean_ms": 1127.6,
+        "p50_ms": 918.9,
+        "p95_ms": 2102.9
+      },
+      "node.receive_answer": {
+        "count": 36,
+        "mean_ms": 2.9,
+        "p50_ms": 2.8,
+        "p95_ms": 3.5
+      },
+      "node.report": {
+        "count": 6,
+        "mean_ms": 8049.6,
+        "p50_ms": 7918.3,
+        "p95_ms": 9037.5
+      }
+    },
+    "node_tokens": {
+      "node.ask_question": {
+        "calls": 30,
+        "prompt_tokens": 11276,
+        "completion_tokens": 3676,
+        "total_tokens": 14952
+      },
+      "node.assess_answer": {
+        "calls": 36,
+        "prompt_tokens": 17507,
+        "completion_tokens": 4395,
+        "total_tokens": 21902
+      },
+      "node.greeting": {
+        "calls": 6,
+        "prompt_tokens": 291,
+        "completion_tokens": 133,
+        "total_tokens": 424
+      },
+      "node.report": {
+        "calls": 6,
+        "prompt_tokens": 11978,
+        "completion_tokens": 9250,
+        "total_tokens": 21228
+      },
+      "rewrite.multi_query": {
+        "calls": 12,
+        "prompt_tokens": 1559,
+        "completion_tokens": 684,
+        "total_tokens": 2243
+      }
+    },
+    "llm": {
+      "purpose": {
+        "question": {
+          "calls": 24,
+          "prompt_tokens": 7736,
+          "completion_tokens": 2827
+        },
+        "rewrite": {
+          "calls": 12,
+          "prompt_tokens": 1559,
+          "completion_tokens": 684
+        },
+        "eval": {
+          "calls": 54,
+          "prompt_tokens": 33316,
+          "completion_tokens": 14627
+        }
+      },
+      "duration": {
+        "count": 90,
+        "mean_ms": 1802.2,
+        "p50_ms": 1371.4,
+        "p95_ms": 7762.8
+      }
+    },
+    "rerank": {
+      "count": 12,
+      "mean_ms": 383.9,
+      "p50_ms": 400.9,
+      "p95_ms": 442.0
+    },
+    "recall_returned": {
+      "mean": 6.0,
+      "min": 6,
+      "max": 6
+    }
+  },
+  "budget": {
+    "per_session": [
+      {
+        "session_id": "8402dfc4d74747fe915bab80928e64af",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 7496,
+        "completion_tokens": 2909,
+        "total_tokens": 10405,
+        "est_cost_cny": 0.038264,
+        "total_s": 27.24
+      },
+      {
+        "session_id": "0ef98e5c063046fdb98b8e480a33f193",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.6,
+        "prompt_tokens": 6330,
+        "completion_tokens": 2953,
+        "total_tokens": 9283,
+        "est_cost_cny": 0.036284,
+        "total_s": 30.65
+      },
+      {
+        "session_id": "add308afec924e1ba88d36a2be685f66",
+        "track": "数据工程",
+        "rounds": 6,
+        "mean_score": 1.2,
+        "prompt_tokens": 6598,
+        "completion_tokens": 2732,
+        "total_tokens": 9330,
+        "est_cost_cny": 0.035052,
+        "total_s": 27.89
+      },
+      {
+        "session_id": "50dc891e2e5b4236a129041abea1e321",
+        "track": "全栈开发",
+        "rounds": 6,
+        "mean_score": 1.4,
+        "prompt_tokens": 6931,
+        "completion_tokens": 2661,
+        "total_tokens": 9592,
+        "est_cost_cny": 0.03515,
+        "total_s": 27.49
+      },
+      {
+        "session_id": "4f7678d6d4c24d6380260291306222b3",
+        "track": "Python 后端开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 5688,
+        "completion_tokens": 2524,
+        "total_tokens": 8212,
+        "est_cost_cny": 0.031568,
+        "total_s": 21.32
+      },
+      {
+        "session_id": "e45546be4ca94379a65487fbc0ec1cb3",
+        "track": "AI 应用开发",
+        "rounds": 6,
+        "mean_score": 1.0,
+        "prompt_tokens": 5194,
+        "completion_tokens": 2598,
+        "total_tokens": 7792,
+        "est_cost_cny": 0.031172,
+        "total_s": 23.24
+      }
+    ],
+    "cost_cny": {
+      "mean": 0.034582,
+      "median": 0.035101,
+      "min": 0.031172,
+      "max": 0.038264
+    },
+    "total_tokens": {
+      "mean": 9102.3,
+      "min": 7792,
+      "max": 10405
+    },
+    "total_s": {
+      "mean": 26.3,
+      "p50": 27.2,
+      "max": 30.65
+    },
+    "node": {
+      "node.ask_question": {
+        "count": 18,
+        "mean_ms": 3506.6,
+        "p50_ms": 1740.1,
+        "p95_ms": 9663.5
+      },
+      "node.assess_answer": {
+        "count": 36,
+        "mean_ms": 1346.9,
+        "p50_ms": 1374.6,
+        "p95_ms": 1765.2
+      },
+      "node.final_evaluation": {
+        "count": 6,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p95_ms": 0.0
+      },
+      "node.followup": {
+        "count": 24,
+        "mean_ms": 3.7,
+        "p50_ms": 3.5,
+        "p95_ms": 5.3
+      },
+      "node.greeting": {
+        "count": 6,
+        "mean_ms": 971.4,
+        "p50_ms": 910.7,
+        "p95_ms": 1232.6
+      },
+      "node.receive_answer": {
+        "count": 36,
+        "mean_ms": 2.9,
+        "p50_ms": 2.8,
+        "p95_ms": 3.5
+      },
+      "node.report": {
+        "count": 6,
+        "mean_ms": 6643.5,
+        "p50_ms": 6459.0,
+        "p95_ms": 7721.2
+      }
+    },
+    "node_tokens": {
+      "node.ask_question": {
+        "calls": 30,
+        "prompt_tokens": 10459,
+        "completion_tokens": 3691,
+        "total_tokens": 14150
+      },
+      "node.assess_answer": {
+        "calls": 36,
+        "prompt_tokens": 15118,
+        "completion_tokens": 4236,
+        "total_tokens": 19354
+      },
+      "node.greeting": {
+        "calls": 6,
+        "prompt_tokens": 291,
+        "completion_tokens": 126,
+        "total_tokens": 417
+      },
+      "node.report": {
+        "calls": 6,
+        "prompt_tokens": 10813,
+        "completion_tokens": 7645,
+        "total_tokens": 18458
+      },
+      "rewrite.multi_query": {
+        "calls": 12,
+        "prompt_tokens": 1556,
+        "completion_tokens": 679,
+        "total_tokens": 2235
+      }
+    },
+    "llm": {
+      "purpose": {
+        "question": {
+          "calls": 24,
+          "prompt_tokens": 6682,
+          "completion_tokens": 2855
+        },
+        "rewrite": {
+          "calls": 12,
+          "prompt_tokens": 1556,
+          "completion_tokens": 679
+        },
+        "eval": {
+          "calls": 54,
+          "prompt_tokens": 29999,
+          "completion_tokens": 12843
+        }
+      },
+      "duration": {
+        "count": 90,
+        "mean_ms": 1633.2,
+        "p50_ms": 1263.2,
+        "p95_ms": 5795.8
+      }
+    },
+    "rerank": {
+      "count": 12,
+      "mean_ms": 380.5,
+      "p50_ms": 345.9,
+      "p95_ms": 461.4
+    },
+    "recall_returned": {
+      "mean": 6.0,
+      "min": 6,
+      "max": 6
+    }
+  }
+}

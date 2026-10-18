@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     semantic_cache_threshold: float = 0.95  # 余弦相似度命中阈值
     semantic_cache_ttl_seconds: int = 1800  # 命中结果的有效期，过期视为未命中
 
+    # ---------- 上下文预算（P2-②：压缩喂入出题/研判/报告的上下文体量）----------
+    ctx_budget_enabled: bool = True
+    ctx_evidence_snippet_chars: int = 100  # 出题/研判所喂证据片段的截断长度
+    ctx_asked_history_max: int = 6  # 出题时回带「已问过的问题」的条数上限
+    ctx_report_source_max: int = 8  # 报告「知识来源」条数上限
+    ctx_report_source_snippet_chars: int = 60  # 报告「知识来源」片段截断长度
+
     # ---------- 切块 ----------
     chunk_size: int = 500
     chunk_overlap: int = 80
