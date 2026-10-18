@@ -796,6 +796,17 @@
     `ruff check app tests scripts frontend` → All checks passed；`check_eval_gate.py` → 退出码 0。
   - **文档回写**：README 新增 §6.10（问题/做法 5 点/实测/取舍）、§2 前端行改「四页式」、单测数 182→183；
     `docs/interview_talk.md` 单测数同步 183（含集成 187）。
+  - **真实浏览器核对（2026-10-18，公网 42.194.242.186，提交 `dc2c5e9`）**：页面渲染比对通过——
+    Hero 左竖条 `borderLeftWidth` = 3px、`borderLeftColor` = `rgb(15,95,89)`；`iv-status` 元素 ×2、
+    `iv-dot` ×6 且计算背景色全为 `rgb(15,95,89)`（服务/DeepSeek/SiliconFlow 三项均 ok），
+    innerText 为「服务正常 ｜ DeepSeek 已配置 ｜ SiliconFlow 已配置」；双 Tab、侧边栏导航改名
+    （模拟面试/刷题训练）、训练 Tab 说明与「前往刷题训练 →」按钮、页尾「服务诊断（部署信息）」
+    三指标卡均正常渲染；无 `stException`/`stAlert` 报错。
+  - **踩坑记录（Streamlit 非活跃 Tab 的测量陷阱）**：`st.tabs` 的非当前面板被隐藏（尺寸为 0），
+    首次测量在切到「刷题训练」后读取到「主按钮 0×0」与「scrollHeight == innerHeight == 701」的无效值，
+    一度误判为版式缺陷；**测量前必须回到目标 Tab**。主按钮相对折叠线的精确位置因此未取得，
+    按已测数据推算（刷题 Tab 整页 701px + 面试 Tab 多出的 ~230px 配置/按钮/状态行）落在 701px 视口折叠线
+    附近、≥800px 视口内可见；此项已在 README §6.10 如实标注为「未取得的测量」。
 - **Progress Notes**:
   - 版式改动的第一原则来自既有注释：「诊断属部署信息，**仅真的不可用时才前置提示**」——健康态下运维信息
     不该占据首屏重心，故把 expander 降级成一行内联徽标（`● 服务正常 ｜ DeepSeek 已配置`）。
