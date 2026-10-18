@@ -664,6 +664,11 @@
       与 `{"rate_limit":{"enabled":false,"per_minute":null},"budget":{"enabled":true,"day":"2026-10-18","calls":0,"tokens":0,"cost_cny":0.0,"max_tokens":0,"max_cost_cny":20.0,...}}`。
   - **文档回写**：README 新增 §6.8 与 §7 一条取舍、§8 CI 单测数改 164；`docs/interview_talk.md` 新增 §5.8、
     §6「下一步」标记第 ⑤ 项完成、单测数改 164；`.env.example` 补 7 项配额配置。
+  - **服务器侧验证（2026-10-18，腾讯云轻量 42.194.242.186，提交 `3db7863` 经 git bundle + reset 同步）**：
+    `docker compose up -d --build` 重建后三容器（qdrant / api / streamlit）均 `healthy`；容器内
+    `GET /health` → **200**；`GET /quota` → `{"rate_limit":{"enabled":true,"per_minute":20},"budget":{"enabled":true,
+    "day":"2026-10-18","calls":0,"tokens":0,"cost_cny":0.0,"max_tokens":1000000,"max_cost_cny":20.0,...}}`（服务器 `.env`
+    未显式配置时由新增默认值兜底，**防护在线上默认生效**）；公网前端 `:8501` → **200**。
 - **Progress Notes**（实现要点存档）:
   - 选型**进程内存而非 Redis**：单实例部署下固定窗口与当日累计都不需要跨进程共享，拉 Redis 属过度工程
     （多一组件、多一份运维），与 §5.6「复用 Qdrant 而非另起缓存」同一取舍逻辑。
