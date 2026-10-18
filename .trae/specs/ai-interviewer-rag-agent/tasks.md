@@ -804,9 +804,25 @@
     三指标卡均正常渲染；无 `stException`/`stAlert` 报错。
   - **踩坑记录（Streamlit 非活跃 Tab 的测量陷阱）**：`st.tabs` 的非当前面板被隐藏（尺寸为 0），
     首次测量在切到「刷题训练」后读取到「主按钮 0×0」与「scrollHeight == innerHeight == 701」的无效值，
-    一度误判为版式缺陷；**测量前必须回到目标 Tab**。主按钮相对折叠线的精确位置因此未取得，
-    按已测数据推算（刷题 Tab 整页 701px + 面试 Tab 多出的 ~230px 配置/按钮/状态行）落在 701px 视口折叠线
-    附近、≥800px 视口内可见；此项已在 README §6.10 如实标注为「未取得的测量」。
+    一度误判为版式缺陷；**测量前必须回到目标 Tab**。
+  - **首屏高度压缩（提交 `5de371f`）**：把「报告维度」标签与五维 chips 并为一行、删掉「数据来源」「面试配置」
+    两个小标题（`st.radio` 自带「知识库来源」标签、右侧三控件各自带标签，小标题冗余且各占一整行）。
+    这两处合计抬升主按钮约 130px，是本次「让 CTA 回到折叠线以上」的主要手段。
+  - **首屏折叠位置实测**（Playwright 驱动本机 Edge，headless，公网页面，提交 `5de371f`）：
+    主按钮 `rect.top` = 529.3、`rect.bottom` = 569.3、宽 820 × 高 40、`disabled=false`；
+    在 **701px** 与 **900px** 两种视口下 `rect.bottom <= innerHeight` 均为 **true**（701px 下余 132px），
+    且 `scrollHeight == innerHeight`（整页无滚动条，页尾诊断也一并落在视口内）；
+    同次测量 `iv-status` ×2、`iv-dot` ×6、`iv-dims-lead` ×1、`iv-hero-dims li` ×5、
+    `stException`/`stAlert` 均为 0。结论：**改造后主按钮已在首屏内，且有充裕余量**。
+  - **验证手段切换记录（curl 断言对 Streamlit 不适用）**：browser_use 工具在本会话连续 4 次返回
+    IDE Command timeout 后按建议改用轻量方案，但实测公网首页静态 HTML 仅 6 467 字节且不含任何渲染内容
+    （`iv-status` / `iv-dims-lead` / 按钮文本均 absent，只有 `streamlit` 外壳字符串命中）——
+    Streamlit 的内容经 websocket 客户端渲染，**静态 HTML 断言无法用作渲染校验**；
+    最终改用 Playwright 驱动本机已装 Edge（headless，不下载 Chromium）直接读取 `getBoundingClientRect`。
+  - **踩坑记录（CN 网络下 uv 临时依赖）**：`uv run --with playwright` 在仓库无镜像配置时直连 pypi.org
+    挂起（uv 进程 CPU≈0）；显式指定清华镜像后会**重解析整个项目依赖**并卡在 `jieba-0.42.1.tar.gz`
+    的 403；最终用「独立临时 venv + aliyun 镜像 `uv pip install playwright`」绕开项目解析，
+    装上 playwright 1.64 完成测量。测量脚本为一次性工具，放在系统临时目录，未进仓库。
 - **Progress Notes**:
   - 版式改动的第一原则来自既有注释：「诊断属部署信息，**仅真的不可用时才前置提示**」——健康态下运维信息
     不该占据首屏重心，故把 expander 降级成一行内联徽标（`● 服务正常 ｜ DeepSeek 已配置`）。
