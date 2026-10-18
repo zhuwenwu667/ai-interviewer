@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     train_login_rate_per_minute: int = 10  # 登录接口每 IP 每分钟尝试上限（防爆破）
     train_qa_dir: Path = Field(default=Path("./data/knowledge/qa"))  # 训练题库目录（qa 八股）
 
+    # ---------- 效果看板（把已入库的离线评测产物暴露为只读接口，零 LLM）----------
+    eval_reports_dir: Path = Field(default=Path("./data/eval/reports"))  # 评测报告目录
+    eval_baseline_path: Path = Field(default=Path("./data/eval/baseline.json"))  # 回归基线
+
     # ---------- 切块 ----------
     chunk_size: int = 500
     chunk_overlap: int = 80

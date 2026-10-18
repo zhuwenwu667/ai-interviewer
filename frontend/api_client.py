@@ -235,3 +235,10 @@ class BackendClient:
     def train_mistakes(self) -> dict:
         """GET /train/mistakes → {mistakes: [{...题干/我的作答/点评/答案要点}], total_count}。"""
         return self._request_json("GET", "/train/mistakes")
+
+    # ------------------------------------------------------------------
+    # 效果看板（/metrics，只读、零 LLM）
+    # ------------------------------------------------------------------
+    def metrics(self) -> dict:
+        """GET /metrics → 效果看板聚合（评测指标 / 消融 / 交叉验证 / 成本 / 缓存 / 预算 / 复练）。"""
+        return self._get_json("/metrics")

@@ -304,3 +304,101 @@ class TrainMistakeItem(BaseModel):
 class TrainMistakesResponse(BaseModel):
     mistakes: list[TrainMistakeItem]
     total_count: int = Field(ge=0, description="题库总题数")
+
+
+# ---------------------------------------------------------------------------
+# 效果看板（GET /metrics）：把已入库的离线评测产物暴露为只读接口，零 LLM
+# ---------------------------------------------------------------------------
+
+
+class MetricRow(BaseModel):
+    """看板里的一行指标。
+
+    取值单位约定（全看板统一）：RAGAS 四项分数**保留 0-1 原值**（``unit="分"``，
+    便于与文档 / 合格线 0.85 直接对照）；检索侧与分类的比例类指标**换算为百分数**
+    （``unit="%"``，如 ``source_hit_rate`` 1.0 → 100.0）。
+    """
+
+    key: str
+    name: str
+    value: float | None = None
+    unit: str = ""
+    threshold: float | None = Field(default=None, description="合格线（仅门槛指标有值）")
+    passed: bool | None = Field(default=None, description="是否达标；观察项为 None")
+    delta: float | None = Field(default=None, description="相对回归基线的变化量")
+    note: str = ""
+
+
+class CategoryMetrics(BaseModel):
+    """分类别（简历 / JD / 题库 / 题库外）指标；比例类均已换算为百分数。"""
+
+    category: str
+    n: int
+    faithfulness: float | None = None
+    context_precision: float | None = None
+    context_recall: float | None = None
+    answer_relevancy: float | None = None
+    source_hit_rate: float | None = None
+    source_f1: float | None = None
+
+
+class AblationRow(BaseModel):
+    """检索消融的一行：某个检索配置的效果与成本。"""
+
+    config: str
+    agentic: bool = False
+    stages: list[str] = Field(default_factory=list, description="启用的检索阶段，如 rewrite/bm25/rrf/rerank")
+    faithfulness: float
+    context_precision: float
+    context_recall: float
+    answer_relevancy: float
+    source_hit_rate: float = Field(description="百分数")
+    mean_rounds: float
+    mean_contexts: float
+    llm_calls: int
+    est_cost_cny_per_q: float = Field(description="单题预估成本（元）")
+
+
+class CrossCheckRow(BaseModel):
+    """异源 judge 交叉验证的一行：两个不同模型对同一指标的评分一致度。"""
+
+    metric: str
+    primary_mean: float
+    cross_mean: float
+    delta: float
+    agree_0_1: float = Field(description="容差 0.1 下的双 judge 一致比例（百分数）")
+
+
+class AbComparison(BaseModel):
+    """A/B 实测对比（语义缓存 / 上下文预算）：基线 vs 优化后。"""
+
+    label: str
+    baseline: float
+    optimized: float
+    delta_pct: float = Field(description="优化后相对基线的变化百分比（负值 = 下降）")
+    unit: str = ""
+
+
+class MetricsDashboard(BaseModel):
+    """GET /metrics：效果看板（只读聚合，零 LLM）。
+
+    数据即仓库内已入库的评测产物，取每类**最新一份**；合格线判定复用 CI 门禁
+    ``check_report``，保证「看板上的达标结论」与「CI 拦门的结论」同源同规则。
+    """
+
+    sources: dict[str, str] = Field(default_factory=dict, description="各分组对应的报告文件名")
+    generated_at: dict[str, str] = Field(default_factory=dict, description="各报告生成时间")
+    gate_passed: bool = False
+    gate_violations: list[str] = Field(default_factory=list, description="未达标项的中文说明")
+    dataset: dict[str, int] = Field(default_factory=dict, description="评测集规模与分类计数")
+    quality: list[MetricRow] = Field(default_factory=list, description="RAGAS 总体 + 检索侧指标")
+    by_category: list[CategoryMetrics] = Field(default_factory=list)
+    ablation: list[AblationRow] = Field(default_factory=list)
+    cross_check: list[CrossCheckRow] = Field(default_factory=list)
+    cell_agreement: dict[str, float] = Field(default_factory=dict, description="双 judge 单元格一致度（百分数）")
+    self_inflation: dict[str, float] = Field(default_factory=dict, description="自评虚高幅度（主 judge - 异源 judge）")
+    session_cost: dict[str, float] = Field(default_factory=dict, description="会话成本 / 延迟 / Token 汇总")
+    semantic_cache: list[AbComparison] = Field(default_factory=list)
+    cache_hit_rate: float | None = Field(default=None, description="语义缓存命中率（百分数）")
+    context_budget: list[AbComparison] = Field(default_factory=list)
+    retrain: TrainRetrainStats = Field(default_factory=TrainRetrainStats)

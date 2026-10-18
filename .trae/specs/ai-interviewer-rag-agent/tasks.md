@@ -918,6 +918,48 @@
     （**复练提升率线上确认真实非零值**）、`quality_counts{good:2,poor:1}`；`/train/mistakes` → `mistakes_count=0`
     （**复练转 good 自动从错题本移除线上确认**）；`/health` → 200、前端 `:8501` → 200。
 
+## Task 26: 效果看板——把已入库评测数字搬进产品（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **背景（对标竞品）**：§6.1–6.8 的消融 / 成本 / 交叉验证 / 缓存与预算 A/B 全是真实数字，但只活在 README 与
+    `data/eval/reports/*.json` 里——打开产品看不到；竞品普遍只给一张「准确率」截图，说不清「为什么这么搭、代价多少」。
+  - **实现**：
+    - `app/api/metrics.py`（新增）：`load_reports()` 载入六类报告（`eval` / `ablation` / `judge_cross_check` /
+      `session_cost` / `semantic_cache` / `context_budget`，每类取文件名排序后**最新一份**）与回归基线；
+      `build_dashboard()` 为**纯函数**（不碰文件系统，可脱库单测）聚合为响应；`GET /metrics` 只读返回。
+    - **达标判定复用 CI 门禁**：直接调 `app.eval.gate.check_report(report, baseline=...)`，把结构化违规项
+      （missing_metric / below_threshold / baseline_drop / oos_refusal / exec_errors）翻成中文
+      `gate_violations`，保证「看板达标结论」与「CI 拦门结论」同源同规则。
+    - **单位口径统一**（避免误读）：RAGAS 四项保留 0-1 原值（`unit="分"`，便于对照合格线 0.85）；
+      检索侧与分类别比例类指标换算为百分数（`unit="%"`）；无数据项如实呈现 `null` → 前端「—」。
+    - 新增 `Settings.eval_reports_dir` / `Settings.eval_baseline_path`；`app/main.py` 挂载 `metrics_router`。
+    - `app/api/schemas.py`：新增 `MetricRow` / `CategoryMetrics` / `AblationRow` / `CrossCheckRow` /
+      `AbComparison` / `MetricsDashboard`，并复用 `TrainRetrainStats`（看板含复练提升率，与训练页同源）。
+    - 前端 `frontend/views_metrics.py`（新增）：门禁徽标 + 评测集规模 + 数据来源文件名 → 门槛指标卡（含合格线 / 基线变化）
+      → 检索与答案质量表 → 运营侧卡（成本 / 时长 / token / 出题耗时 / 复练提升率）→ 分类别表 → 五档消融表
+      → 异源 judge 交叉验证（含单元格一致度与自评虚高）→ 缓存 / 预算 A/B 表。首页由「双 Tab」改为**三 Tab**
+      （模拟面试 / 刷题训练 / 效果看板）并提供「前往效果看板 →」按钮；`app.py` 导航与 `PAGE_LABELS` 同步扩展。
+  - **单测**：`tests/test_api.py` 新增 3 例——`test_metrics_aggregates_reports_and_units`（多报告聚合、
+    单位换算、**取最新一份**、分类别 / 消融 / 缓存 A/B）、`test_metrics_gate_reuses_ci_rule`（低于门槛 →
+    `gate_passed=False` 且违规项含中文指标名）、`test_metrics_empty_when_no_reports`（无产物不报错、返回空看板）；
+    `tests/test_frontend.py` 新增 `test_metrics_page_renders_eval_numbers` 并把首页 Tab 断言改为三个。
+    `uv run pytest -q -m "not integration"` → **195 passed / 1 skipped**；`ruff check` 全过；`check_eval_gate.py` 退出码 0。
+  - **真实产物核验（本地，2026-10-18）**：以真实 `data/eval` 产物调用 `GET /metrics` → 200 / 17.8ms，返回
+    门禁 `passed=True`；评测集 43 题（简历 10 / JD 10 / 题库 16 / 题库外 7）；门槛项 忠实度 0.9892（≥0.85）、
+    上下文召回 0.9931（≥0.8）、答案相关性 0.8953（≥0.85），上下文精确率 0.9399 为观察项；来源命中率 100.0% /
+    精确率 86.1% / F1 90.7% / 诱导题拒答率 100.0%；五档消融 `dense/+bm25/+rrf/+rerank/+agentic` 质量与单题成本并列
+    （`+rrf` 精确率 0.8194→0.9245、成本 +0.000075 元/题；`+agentic` 轮数 1.0→1.60、调用 43→181）；
+    交叉验证单元格一致度 84.0%（±0.1）、答案相关性自评虚高 +0.1081；单场成本 0.0521 元 / 48.7s / 14304 token；
+    缓存命中率 77.8%、出题延迟 −65.4%；预算 token −10.1% / 成本 −9.9%。`retrain=0/0`（本地库无训练记录，
+    线上为 1/1）。
+  - **关键取舍**：① **不做「看板上一键重跑评测」**——重跑要密钥、花真钱、约 7 分钟且受 TPM 限速，塞进只读页面
+    属过度工程；评测仍为发布前手动步骤，看板只负责呈现与口径一致。② **不重写阈值**——达标判定直接复用
+    `check_report`，避免「看板」与「CI」两套规则互相矛盾。③ IO 与聚合分离（`load_reports` / `build_dashboard`），
+    使聚合逻辑可脱库单测、单文件损坏只降级该项而非整体 500。
+  - **文档回写**：README §5 接口表加 `GET /metrics`、新增 §6.12、§6.5 与 §8 单测数 191→195；
+    `docs/interview_talk.md` 新增 §5.11 与 Q16、§5 概览工程侧单测数同步为 195 例（含集成 199 例）。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -942,3 +984,4 @@
 | D19 | Task 23（首页信息流重排与功能入口显性化） |
 | D20 | Task 24（作品集增强：训练模式加固——错题优先抽题与错题本） |
 | D21 | Task 25（作品集增强：面试历史回看 + 复练提升率） |
+| D22 | Task 26（作品集增强：效果看板——评测数字进产品） |

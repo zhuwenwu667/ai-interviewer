@@ -130,6 +130,7 @@ deploy/          deploy.sh（Linux 一键部署）
 | `POST` | `/train/reveal` | 答不出来直接看答案要点（**不调 LLM、不落库**，看答案不计入已练进度）；需令牌，每 IP 限速 |
 | `GET` | `/train/history` | 最近作答记录 + 进度统计（已练题数 / 题库总数 / 质量分布 / **复练提升率**）；需令牌 |
 | `GET` | `/train/mistakes` | 错题本：最近一次研判非 good 的题（poor 在前）+ 我的作答 / 点评 / 答案要点；需令牌，每 IP 限速 |
+| `GET` | `/metrics` | **效果看板**：只读聚合已入库评测产物（RAGAS 指标 / 检索消融 / 异源 judge 交叉验证 / 成本延迟 / 缓存与预算 A/B / 复练提升率）；零 LLM、无密钥、毫秒级 |
 
 **SSE 事件**：`stage`（阶段推进，含轮次）、`token`（面试官文本增量）、`done`（本轮结束，`error` 时标注）、`error`（中文可读错误码，不断开连接）。
 
@@ -294,7 +295,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（191 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（195 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -503,6 +504,46 @@ login→next→answer→history 全链路、未配置 503、错口令 401、未�
 **取舍**：历史记录做在**开始页折叠区**而非新增独立页——两次点击即可回看，且不牺牲首屏折叠线；复练提升率挂在
 现有 `history` 接口的**新字段**而非新接口——数据同源、零额外请求，也避免为「展示一个比例」多开一个端点（过度工程）。
 
+### 6.12 效果看板：把「只写在文档里」的评测数字搬进产品（2026-10-18）
+
+**问题**：前面 §6.1–6.8 的消融、成本、交叉验证、缓存 A/B 全是**真实跑出来的数字**，但它们只活在 README 与
+`data/eval/reports/*.json` 里——面试官/用户打开产品看不到，得翻文档。竞品多数也只有一张「准确率」截图，
+说不清「为什么这么搭、代价多少」。
+
+**做法**：新增只读接口 `GET /metrics`（[app/api/metrics.py](file:///c:/Users/50453/Desktop/面试项目/1/app/api/metrics.py)），
+把已入库的六类报告（`eval` / `ablation` / `judge_cross_check` / `session_cost` / `semantic_cache` / `context_budget`，
+每类取文件名排序后最新一份）聚合成一个响应；前端新增「效果看板」页（首页第三 Tab + 侧边栏直达）。
+两个关键取舍：
+
+1. **不重跑评测**——看板只读产物：无密钥、零 LLM、毫秒级返回（实测 17.8ms），与「CI 只校验已入库报告」同思路
+   （评测是发布前手动步骤，展示与拦门都用同一份产物）。聚合的 IO（`load_reports`）与纯函数（`build_dashboard`）
+   分离，后者可脱库单测。
+2. **达标判定直接复用 CI 门禁**——`build_dashboard` 调 `app.eval.gate.check_report`，把结构化违规项翻成中文。
+   于是「看板显示达标」与「CI 拦门通过」是**同一套规则、同一个结论**，不会出现两处各写一套阈值而互相矛盾。
+
+**单位口径（全看板统一，避免误读）**：RAGAS 四项保留 0-1 原值（`unit="分"`，便于与合格线 0.85 直接对照）；
+检索侧与分类别比例类指标换算为百分数（`unit="%"`，如 `source_hit_rate` 1.0 → 100.0）。
+
+**实测（真实产物聚合，2026-10-18）**：`GET /metrics` 返回 —— 门禁 `passed=True`；评测集 43 题（简历 10 / JD 10 /
+题库 16 / 题库外 7）；门槛指标 忠实度 0.9892（≥0.85 ✅，基线 +0.0038）、上下文召回 0.9931（≥0.8 ✅，−0.0069）、
+答案相关性 0.8953（≥0.85 ✅，+0.0230），上下文精确率 0.9399 列为**观察项**（不在 CI 门槛集内）；
+检索侧来源命中率 100.0% / 精确率 86.1% / F1 90.7% / 诱导题拒答率 100.0%（达标线 80% ✅）；
+四类分类别指标齐全（题库外类无来源指标，按真实 `null` 呈现为「—」）；
+五档检索消融（dense → +bm25 → +rrf → +rerank → +agentic）质量与单题成本并列，可见 `+rrf` 把上下文精确率
+0.8194 → 0.9245 而成本仅 +0.000075 元/题、`+agentic` 轮数升到 1.60 且调用 43 → 181；
+异源 judge 交叉验证四指标差值（答案相关性自评虚高 +0.1081 最明显）、单元格一致度 84.0%（±0.1）；
+单场成本均值 0.0521 元 / 时长 48.7s / 14.3k token；语义缓存命中率 77.8%、单题出题延迟 −65.4%；
+上下文预算 token −10.1% / 成本 −9.9%。
+单测：`tests/test_api.py` 新增 3 例（多报告聚合与单位换算 +「取最新一份」、门禁违规中文回显、无产物不报错）；
+`tests/test_frontend.py` 新增 1 例（看板渲染 + 首页入口直达）。`uv run pytest -q -m "not integration"` →
+**195 passed / 1 skipped**；`ruff check` 全过；`check_eval_gate.py` 退出码 0。
+
+**取舍**：不做「看板上直接触发重跑评测」——那会把密钥、费用、7 分钟时延带进一个只读页面（过度工程），
+评测仍作为发布前手动步骤，看板只负责呈现与一致性。
+
+> 部署注意：镜像已 `COPY data/eval/`（评测报告与基线随镜像分发，见 [Dockerfile](file:///c:/Users/50453/Desktop/面试项目/1/Dockerfile)），
+> 因此容器内看板读到的是**本次构建时点**的产物；重跑评测后需重新构建镜像（或在服务器上挂载 `data/eval`）才能看到新数字。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -572,7 +613,8 @@ uv run python scripts/measure_context_budget.py --sessions 6 --questions 6   # �
 > **无需任何密钥**，push / PR 即触发（详见 §6.5）。
 
 - 离线单测覆盖配置校验、切块/加载、RRF、检索改写开关、自适应循环、图路由、持久化、
-  报告渲染、观察性与评测聚合、训练模式（认证/题库/接口/前端页）；集成测试用 `-m integration` 标记，与离线用例分离。
+  报告渲染、观察性与评测聚合、训练模式（认证/题库/接口/前端页）、**效果看板（多报告聚合与单位换算、
+  门禁结论复用与中文违规回显、无产物降级）**；集成测试用 `-m integration` 标记，与离线用例分离。
 - 覆盖率配置见 `pyproject.toml` 的 `[tool.coverage.*]`；核心工具模块均 **≥70%**
   （chunker、RRF、状态路由、schemas、storage、adaptive）。
 

@@ -370,6 +370,136 @@ def test_list_sessions_orders_and_flags_report(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 效果看板（优化项3）：GET /metrics 只读聚合已入库评测产物，零 LLM
+# ---------------------------------------------------------------------------
+def _eval_payload(faithfulness: float = 0.9892, taken_at: str = "2026-10-18T02:14:45") -> dict:
+    """最小可用的评测报告结构（字段路径与真实 data/eval/reports/*.json 一致）。"""
+    return {
+        "generated_at": taken_at,
+        "dataset": {"total": 43, "executed": 43, "counts": {"resume": 10, "jd": 10, "qa": 16, "oos": 7}},
+        "metrics": {
+            "overall": {
+                "faithfulness": faithfulness, "context_precision": 0.9399,
+                "context_recall": 0.9931, "answer_relevancy": 0.8953,
+            },
+            "by_category": {
+                "qa": {"n": 16, "metrics": {"faithfulness": 1.0, "context_precision": 0.9,
+                                           "context_recall": 1.0, "answer_relevancy": 0.8}}
+            },
+        },
+        "retrieval": {
+            "source_hit_rate": 1.0, "source_f1": 0.98, "answer_citation_rate": 0.95,
+            "oos_refusal_rate": 0.857, "mean_contexts": 6.0, "mean_rounds": 1.67,
+            "by_category": {"qa": {"n": 16, "source_hit_rate": 1.0, "source_f1": 1.0}},
+        },
+        "thresholds": {"faithfulness": 0.85, "context_recall": 0.85, "answer_relevancy": 0.85},
+        "thresholds_pass": {
+            "faithfulness": faithfulness >= 0.85, "context_recall": True, "answer_relevancy": True,
+        },
+        "oos_refusal_target": 0.8,
+        "oos_refusal_pass": True,
+        "errors": [],
+        "baseline": {"deltas": {"faithfulness": 0.0038, "context_precision": 0.0016}},
+    }
+
+
+def _write_reports(reports_dir, files: dict[str, dict]) -> None:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    for name, payload in files.items():
+        (reports_dir / name).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _metrics_client(tmp_path, files: dict[str, dict], baseline: dict | None = None) -> TestClient:
+    reports_dir = tmp_path / "reports"
+    _write_reports(reports_dir, files)
+    baseline_path = tmp_path / "baseline.json"
+    if baseline is not None:
+        baseline_path.write_text(json.dumps(baseline, ensure_ascii=False), encoding="utf-8")
+    settings = _settings(eval_reports_dir=reports_dir, eval_baseline_path=baseline_path)
+    return _client(_container(settings, _llm(settings, []), SessionRepository(tmp_path / "m.db")))
+
+
+def test_metrics_aggregates_reports_and_units(tmp_path):
+    """看板：门禁结论 / 单位口径 / 分类别 / 消融 / 缓存 A/B / 复练提升率一次成形。"""
+    client = _metrics_client(
+        tmp_path,
+        {
+            # 旧报告在前、新报告在后：验证「取最新一份」
+            "eval_20260101_000000.json": _eval_payload(faithfulness=0.5, taken_at="2026-01-01"),
+            "eval_20261018_021445.json": _eval_payload(),
+            "ablation_20261017_223939.json": {
+                "generated_at": "2026-10-17T22:39:39",
+                "configs": [{
+                    "config": "dense", "agentic": False, "stages": {"bm25": False, "rrf": False},
+                    "metrics": {"faithfulness": 0.9739, "context_precision": 0.8194,
+                                "context_recall": 1.0, "answer_relevancy": 0.8818},
+                    "source_hit_rate": 1.0, "mean_rounds": 1.0, "mean_contexts": 6.0,
+                    "tokens": {"llm_calls": 43, "est_cost_cny_per_q": 0.00248},
+                }],
+            },
+            "semantic_cache_20261018_093958.json": {
+                "generated_at": "2026-10-18T09:39:58",
+                "summary": {
+                    "ask_question": {"baseline_mean_ms": 9194.1, "cached_mean_ms": 3182.2,
+                                     "latency_delta_pct": -65.4},
+                    "cache": {"hit_rate": 0.778},
+                    "llm": {"baseline_calls": 90, "cached_calls": 45, "calls_delta_pct": -50.0,
+                            "baseline_total_tokens": 1000, "cached_total_tokens": 500,
+                            "tokens_delta_pct": -50.0},
+                },
+            },
+        },
+        baseline={"metrics": {"overall": {"faithfulness": 0.85, "context_precision": 0.85}}},
+    )
+    body = client.get("/metrics").json()
+
+    assert body["gate_passed"] is True and body["gate_violations"] == []
+    assert body["sources"]["eval"] == "eval_20261018_021445.json"  # 取最新一份，而非 0.5 那份
+    assert body["dataset"] == {"total": 43, "executed": 43, "resume": 10, "jd": 10, "qa": 16, "oos": 7}
+
+    quality = {row["key"]: row for row in body["quality"]}
+    # 门槛指标保留 0-1 原值并带合格线；比例类指标统一换算为百分数
+    assert quality["faithfulness"] == {
+        "key": "faithfulness", "name": "忠实度", "value": 0.9892, "unit": "分",
+        "threshold": 0.85, "passed": True, "delta": 0.0038, "note": "门槛指标",
+    }
+    assert quality["source_hit_rate"]["value"] == 100.0 and quality["source_hit_rate"]["unit"] == "%"
+    assert quality["mean_rounds"]["value"] == 1.67 and quality["mean_rounds"]["unit"] == "轮"
+
+    assert body["by_category"] == [{
+        "category": "题库问答", "n": 16, "faithfulness": 1.0, "context_precision": 0.9,
+        "context_recall": 1.0, "answer_relevancy": 0.8, "source_hit_rate": 100.0, "source_f1": 100.0,
+    }]
+    assert body["ablation"][0]["config"] == "dense" and body["ablation"][0]["stages"] == []
+    assert body["ablation"][0]["est_cost_cny_per_q"] == 0.00248
+    assert body["cache_hit_rate"] == 77.8
+    assert body["semantic_cache"][0]["delta_pct"] == -65.4
+
+
+def test_metrics_gate_reuses_ci_rule(tmp_path):
+    """未达合格线时看板结论与 CI 门禁同源：gate_passed=False 且给出中文未达标说明。"""
+    client = _metrics_client(
+        tmp_path,
+        {"eval_20261018_021445.json": _eval_payload(faithfulness=0.5)},
+        baseline={"metrics": {"overall": {"faithfulness": 0.85, "context_precision": 0.85}}},
+    )
+    body = client.get("/metrics").json()
+    assert body["gate_passed"] is False
+    assert body["gate_violations"] and "忠实度" in body["gate_violations"][0]
+
+
+def test_metrics_empty_when_no_reports(tmp_path):
+    """尚无评测产物时接口不报错：返回空看板（前端据此提示「先跑评测」）。"""
+    settings = _settings(
+        eval_reports_dir=tmp_path / "none", eval_baseline_path=tmp_path / "none.json"
+    )
+    client = _client(_container(settings, _llm(settings, []), SessionRepository(tmp_path / "m.db")))
+    body = client.get("/metrics").json()
+    assert body["gate_passed"] is False
+    assert body["quality"] == [] and body["ablation"] == [] and body["by_category"] == []
+
+
+# ---------------------------------------------------------------------------
 # TR-9.3：SSE 首事件为 stage；上游全 401 → 图内降级跑题 → 报告节点 error 事件
 # ---------------------------------------------------------------------------
 def test_upstream_401_degrades_then_chinese_error_event(tmp_path):

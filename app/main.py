@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_exception_handlers
 from app.api.health import router as health_router
+from app.api.metrics import router as metrics_router
 from app.api.sessions import router as sessions_router
 from app.api.train import router as train_router
 from app.config import get_settings
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(sessions_router)
     app.include_router(train_router)
+    app.include_router(metrics_router)
     return app
 
 

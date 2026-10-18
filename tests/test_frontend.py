@@ -63,6 +63,60 @@ MESSAGES = [
 ]
 
 
+METRICS = {
+    "sources": {"eval": "eval_20261018_021445.json", "ablation": "ablation_20261017_223939.json"},
+    "generated_at": {"eval": "2026-10-18T02:14:45+08:00"},
+    "gate_passed": True,
+    "gate_violations": [],
+    "dataset": {"total": 43, "executed": 43, "resume": 10, "jd": 10, "qa": 16, "oos": 7},
+    "quality": [
+        {
+            "key": "faithfulness", "name": "忠实度", "value": 0.9892, "unit": "分",
+            "threshold": 0.85, "passed": True, "delta": 0.0038, "note": "门槛指标",
+        },
+        {
+            "key": "source_hit_rate", "name": "知识来源命中率", "value": 100.0, "unit": "%",
+            "threshold": None, "passed": None, "delta": None, "note": "",
+        },
+    ],
+    "by_category": [
+        {"category": "简历", "n": 10, "faithfulness": 1.0, "context_precision": 0.95,
+         "context_recall": 1.0, "answer_relevancy": 0.8221,
+         "source_hit_rate": 100.0, "source_f1": 100.0}
+    ],
+    "ablation": [
+        {"config": "dense", "agentic": False, "stages": [], "faithfulness": 0.9739,
+         "context_precision": 0.8194, "context_recall": 1.0, "answer_relevancy": 0.8818,
+         "source_hit_rate": 100.0, "mean_rounds": 1.0, "mean_contexts": 6.0,
+         "llm_calls": 43, "est_cost_cny_per_q": 0.00248},
+        {"config": "agentic", "agentic": True, "stages": ["rewrite", "bm25", "rrf", "rerank"],
+         "faithfulness": 0.9892, "context_precision": 0.9399, "context_recall": 0.9931,
+         "answer_relevancy": 0.8953, "source_hit_rate": 100.0, "mean_rounds": 1.67,
+         "mean_contexts": 6.0, "llm_calls": 116, "est_cost_cny_per_q": 0.0061},
+    ],
+    "cross_check": [
+        {"metric": "忠实度", "primary_mean": 0.973, "cross_mean": 1.0,
+         "delta": -0.027, "agree_0_1": 88.9}
+    ],
+    "cell_agreement": {"agree_0.05": 76.4, "agree_0.1": 84.0, "agree_0.2": 93.8},
+    "self_inflation": {"faithfulness": -0.027, "context_precision": 0.0147},
+    "session_cost": {
+        "sessions": 6.0, "cost_mean_cny": 0.05211, "cost_max_cny": 0.05952,
+        "total_tokens_mean": 14304.3, "total_s_mean": 48.73, "ask_question_ms_mean": 10736.2,
+    },
+    "semantic_cache": [
+        {"label": "单题出题延迟", "baseline": 9194.1, "optimized": 3182.2,
+         "delta_pct": -65.4, "unit": "ms"}
+    ],
+    "cache_hit_rate": 77.8,
+    "context_budget": [
+        {"label": "LLM Token 总量", "baseline": 60749.0, "optimized": 54614.0,
+         "delta_pct": -10.1, "unit": "token"}
+    ],
+    "retrain": {"retrained_count": 2, "improved_count": 1, "improvement_rate": 0.5},
+}
+
+
 def _sse(event: str, data: dict) -> SseEventLite:
     return SseEventLite(event, data)
 
@@ -216,6 +270,9 @@ def stub_backend(monkeypatch) -> dict:
     monkeypatch.setattr(BackendClient, "train_reveal", train_reveal)
     monkeypatch.setattr(BackendClient, "train_history", train_history)
     monkeypatch.setattr(BackendClient, "train_mistakes", train_mistakes)
+
+    # 效果看板桩（优化项3）：一次 GET /metrics 的聚合结果
+    monkeypatch.setattr(BackendClient, "metrics", lambda self: METRICS)
     return state
 
 
@@ -264,10 +321,10 @@ def test_start_page_renders_and_starts_interview(stub_backend):
 
 
 def test_start_page_tabs_offer_train_entry(stub_backend):
-    """首页双 Tab：模拟面试 / 刷题训练并列，训练入口不经侧边栏即可直达。"""
+    """首页三 Tab：模拟面试 / 刷题训练 / 效果看板并列，训练入口不经侧边栏即可直达。"""
     at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["模拟面试", "刷题训练"]
+    assert [t.label for t in at.tabs] == ["模拟面试", "刷题训练", "效果看板"]
 
     # CTA 旁一行内联状态（服务 + 两个模型），健康时三项均 ok
     text = "\n".join(m.value for m in at.markdown)
@@ -449,3 +506,45 @@ def test_train_page_401_falls_back_to_login(stub_backend, monkeypatch):
     assert "用户名" in labels and "密码" in labels
     errors = [e.value for e in at.error]
     assert any("重新登录" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# 效果看板页（优化项3）：一次 GET /metrics，把已入库评测数字渲染成看板
+# ---------------------------------------------------------------------------
+def _goto_metrics(at: AppTest) -> None:
+    at.session_state["requested_page"] = "metrics"
+    at.run()
+
+
+def test_metrics_page_renders_eval_numbers(stub_backend):
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _goto_metrics(at)
+    assert not at.exception
+
+    # 门禁结论（与 CI 同规则）+ 评测集规模 + 数据来源文件名（可追溯）
+    assert any("评测回归门禁" in s.value and "通过" in s.value for s in at.success)
+    captions = "\n".join(c.value for c in at.caption)
+    assert "评测集：共 43 题" in captions
+    assert "eval_20261018_021445.json" in captions, "看板应标注数据来源报告文件名"
+
+    # 门槛指标卡（带合格线）+ 运营侧数字（成本 / 时长 / 复练提升率）
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["忠实度（≥ 0.85）"] == "0.9892"
+    assert metrics["单场面试成本（元）"] == "0.052"
+    assert metrics["单场面试时长（秒）"] == "49"
+    assert metrics["复练提升率"] == "50%"
+    assert metrics["语义缓存命中率"] == "77.8%"
+
+    # 分类别 / 消融 / 交叉验证 / 缓存 / 预算 多张表均上屏
+    assert len(at.dataframe) >= 5, f"看板应渲染多张表格（当前 {len(at.dataframe)} 张）"
+    captions = "\n".join(c.value for c in at.caption)
+    assert "异源 judge 交叉验证" in captions and "自评虚高幅度" in captions
+    headings = "\n".join(m.value for m in at.markdown)
+    assert "检索消融：哪个配置值得这么搭" in headings
+    assert "语义缓存 A/B 实测" in headings and "上下文预算 A/B 实测" in headings
+
+    # 首页第三 Tab 的入口可直达看板
+    start = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _button(start, "前往效果看板").click().run()
+    assert not start.exception
+    assert any("评测回归门禁" in s.value for s in start.success)

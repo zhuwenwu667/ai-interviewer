@@ -1,4 +1,4 @@
-"""开始页：Hero + 「模拟面试 / 刷题训练」双 Tab 配置区 + 服务诊断。
+"""开始页：Hero + 「模拟面试 / 刷题训练 / 效果看板」三 Tab 配置区 + 服务诊断。
 
 版式原则：首屏只承载「看说明 → 看状态 → 点开始」三段信息。
 服务诊断（健康检查、模型配置）属部署信息——健康时只留 CTA 旁一行内联状态徽标，
@@ -207,6 +207,22 @@ def _render_train_tab(health: dict | None) -> None:
     _render_status(health)
 
 
+def _render_metrics_tab(health: dict | None) -> None:
+    st.markdown(
+        "把项目**已跑出来的真实评测数字**搬进界面：RAGAS 质量指标（含合格线）、"
+        "检索消融（各配置的效果 vs 单题成本）、异源 judge 交叉验证、单场成本与延迟、"
+        "语义缓存与上下文预算的 A/B 实测。"
+    )
+    st.caption(
+        "数据读自已入库的评测报告，页面零 LLM 调用、毫秒级返回；"
+        "达标结论与 CI 门禁（scripts/check_eval_gate.py）同一套规则。"
+    )
+    if st.button("前往效果看板 →", type="primary", use_container_width=True):
+        st.session_state["requested_page"] = "metrics"  # 下一轮生效（避免同轮改写导航组件 key）
+        st.rerun()
+    _render_status(health)
+
+
 def _open_report(session_id: str) -> None:
     """从历史记录点开某场面试的既有报告（清缓存，下一轮由报告页重新拉取）。"""
     st.session_state.update(session_id=session_id, report=None, requested_page="report")
@@ -265,10 +281,12 @@ def render(client: BackendClient) -> None:
     st.markdown(_hero_html(), unsafe_allow_html=True)
     health = _fetch_health(client)
 
-    interview_tab, train_tab = st.tabs(["模拟面试", "刷题训练"])
+    interview_tab, train_tab, metrics_tab = st.tabs(["模拟面试", "刷题训练", "效果看板"])
     with interview_tab:
         _render_interview_tab(client, health)
     with train_tab:
         _render_train_tab(health)
+    with metrics_tab:
+        _render_metrics_tab(health)
 
     _render_diagnostics_details(health)
