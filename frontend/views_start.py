@@ -34,8 +34,10 @@ _HERO = """
     上传简历与岗位 JD，AI 面试官据此出题、逐题追问；结束时给出五维评分、亮点与改进建议，
     每处评价都能回溯到知识库原文。
   </p>
-  <p class="iv-hero-dims-label">报告维度</p>
-  <ul class="iv-hero-dims">{dims}</ul>
+  <div class="iv-hero-dims-wrap">
+    <span class="iv-dims-lead">报告维度</span>
+    <ul class="iv-hero-dims">{dims}</ul>
+  </div>
 </div>
 """
 
@@ -110,7 +112,7 @@ def _uploaded_tuple(uploaded) -> tuple[str, bytes, str]:
 
 
 def _render_source_column() -> tuple[object | None, object | None]:
-    st.markdown("##### 数据来源")
+    # 不加「数据来源」小标题：radio 自带「知识库来源」标签，小标题是冗余且占一整行首屏高度
     source = st.radio(
         "知识库来源",
         ["用示例题库直接体验", "上传我的简历与 JD"],
@@ -134,7 +136,7 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
         resume_file, jd_file = _render_source_column()
 
     with right:
-        st.markdown("##### 面试配置")
+        # 同左列：方向/题数/称呼三个控件自带标签，故不再加「面试配置」小标题占行
         track_choice = st.selectbox(
             "岗位方向",
             [*TRACK_LABELS, CUSTOM_TRACK],

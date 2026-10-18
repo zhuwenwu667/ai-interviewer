@@ -37,9 +37,9 @@ _STYLES = """
   .block-container { max-width: 1080px; padding-top: 1.8rem; padding-bottom: 3rem; }
 
   .iv-hero {
-    padding: 0.2rem 0 1.15rem 1.05rem;
+    padding: 0.2rem 0 0.85rem 1.05rem;
     border-left: 3px solid #0F5F59;
-    margin-bottom: 1.0rem;
+    margin-bottom: 0.85rem;
   }
   .iv-hero-badge {
     display: inline-block; font-size: 0.75rem; letter-spacing: 0.02em;
@@ -52,11 +52,12 @@ _STYLES = """
   }
   .iv-hero-sub {
     font-size: 1rem; line-height: 1.7; color: #4A5C60;
-    margin: 0 0 1.1rem; max-width: 38rem;
+    margin: 0 0 0.85rem; max-width: 38rem;
   }
-  .iv-hero-dims-label {
-    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
-    color: #6B7C80; margin: 0 0 8px;
+  /* 「报告维度」与 chips 同行排布：标签不再单独占一行，省首屏高度 */
+  .iv-hero-dims-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .iv-dims-lead {
+    font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; color: #6B7C80;
   }
   .iv-hero-dims {
     display: flex; flex-wrap: wrap; gap: 8px;
