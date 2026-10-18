@@ -94,7 +94,7 @@ def _render_status(health: dict | None) -> None:
         st.markdown(html, unsafe_allow_html=True)
 
 
-def _render_cta_hint(track: str) -> None:
+def _render_cta_hint(track: str, name: str) -> None:
     """把按钮禁用原因显性化（原先只有灰按钮，用户不知道为什么点不动）。"""
     if not st.session_state.get("server_ready", False):
         st.caption("服务未就绪：请确认后端已启动，或检查侧边栏「高级：连接与密钥」中的 API 地址。")
@@ -105,6 +105,8 @@ def _render_cta_hint(track: str) -> None:
         )
     elif not track.strip():
         st.caption("请先选择或填写岗位方向。")
+    elif not name:
+        st.caption("请先填写你的称呼——历史面试记录与报告会用它标识这一场面试。")
 
 
 def _uploaded_tuple(uploaded) -> tuple[str, bytes, str]:
@@ -153,9 +155,18 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
         # 题数与称呼并排，收窄首屏高度（让主按钮尽量留在折叠线以上）
         num_col, name_col = st.columns(2)
         num_questions = num_col.slider("题目数量", 1, 10, value=3)
-        candidate_name = name_col.text_input("你的称呼（可选）", value="", max_chars=40)
+        candidate_name = name_col.text_input(
+            "你的称呼",
+            value="",
+            max_chars=40,
+            placeholder="例如：小张",
+            help="必填：历史面试记录与报告会用它标识这一场面试。",
+        )
 
-    disabled = not st.session_state.get("server_ready", False) or not track.strip()
+    name = candidate_name.strip()
+    disabled = (
+        not st.session_state.get("server_ready", False) or not track.strip() or not name
+    )
     if st.button(
         "开始这场模拟面试 →", type="primary", disabled=disabled, use_container_width=True
     ):
@@ -173,7 +184,7 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
                 record = client.create_session(
                     track=track.strip(),
                     num_questions=num_questions,
-                    candidate_name=candidate_name.strip() or None,
+                    candidate_name=name,
                     resume=resume,
                     jd=jd,
                 )
@@ -191,7 +202,7 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
         st.rerun()
 
     _render_status(health)
-    _render_cta_hint(track)
+    _render_cta_hint(track, name)
     _render_history(client)
 
 
@@ -242,18 +253,23 @@ def _render_history(client: BackendClient) -> None:
         if not sessions:
             st.caption("还没有面试记录——完成一场面试后，这里可以随时回看报告。")
             return
+        header = st.columns([2, 3, 2, 1, 2, 2])
+        for cell, label in zip(header, ("称呼", "时间", "方向", "题数", "状态", "操作"), strict=True):
+            cell.caption(label)
         for item in sessions:
-            cols = st.columns([3, 2, 2, 2, 2])
+            # 列序与表头一致：称呼 / 时间 / 方向 / 题数 / 状态 / 操作（称呼为会话标识，置首列）
+            cols = st.columns([2, 3, 2, 1, 2, 2])
             when = str(item.get("created_at", ""))[:16].replace("T", " ")
-            cols[0].markdown(f"{when}")
-            cols[1].markdown(f"{item.get('track', '')}")
-            cols[2].markdown(f"{item.get('num_questions', 0)} 题")
-            cols[3].markdown("已完成" if item.get("status") == "finished" else "进行中")
+            cols[0].markdown(item.get("candidate_name") or "—")
+            cols[1].markdown(f"{when}")
+            cols[2].markdown(f"{item.get('track', '')}")
+            cols[3].markdown(f"{item.get('num_questions', 0)} 题")
+            cols[4].markdown("已完成" if item.get("status") == "finished" else "进行中")
             if item.get("has_report"):
-                if cols[4].button("回看报告", key=f"open_report_{item['session_id']}"):
+                if cols[5].button("回看报告", key=f"open_report_{item['session_id']}"):
                     _open_report(item["session_id"])
             else:
-                cols[4].caption("暂无报告")
+                cols[5].caption("暂无报告")
 
 
 def _render_diagnostics_details(health: dict | None) -> None:

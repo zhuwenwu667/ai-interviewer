@@ -31,7 +31,9 @@ class CreateSessionRequest(BaseModel):
 
     track: str = Field(min_length=1, description="岗位方向，如 backend / ai_app")
     num_questions: int = Field(default=5, ge=1, le=10, description="计划题目数")
-    candidate_name: str | None = Field(default=None, description="候选人称呼（可选）")
+    candidate_name: str | None = Field(
+        default=None, description="候选人称呼（HTTP 层必填；仓储模型允许为空以兼容历史数据）"
+    )
 
 
 class SessionRecord(BaseModel):

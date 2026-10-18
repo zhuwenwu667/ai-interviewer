@@ -158,10 +158,10 @@ def test_create_session_is_rate_limited_with_retry_after(tmp_path):
     client = _client(tmp_path)
 
     for _ in range(2):
-        resp = client.post("/sessions", data={"track": "Python 后端开发"})
+        resp = client.post("/sessions", data={"track": "Python 后端开发", "candidate_name": "测试候选人"})
         assert resp.status_code == 201
 
-    blocked = client.post("/sessions", data={"track": "Python 后端开发"})
+    blocked = client.post("/sessions", data={"track": "Python 后端开发", "candidate_name": "测试候选人"})
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "RATE_LIMITED"
     assert int(blocked.headers["Retry-After"]) >= 1
@@ -175,7 +175,7 @@ def test_budget_exhaustion_returns_503(tmp_path):
     reset_quota(manager)
     client = _client(tmp_path)
 
-    resp = client.post("/sessions", data={"track": "Python 后端开发"})
+    resp = client.post("/sessions", data={"track": "Python 后端开发", "candidate_name": "测试候选人"})
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "BUDGET_EXHAUSTED"
 

@@ -284,6 +284,9 @@ def _button(at: AppTest, label: str):
 
 def _start_session(at: AppTest) -> None:
     at.slider[0].set_value(1)
+    # 称呼为必填：先填并重跑一次让主按钮启用（禁用态按钮无法点击），再点开始
+    next(t for t in at.text_input if t.label == "你的称呼").set_value("测试候选人")
+    at.run()
     _button(at, "开始这场模拟面试").click().run()
 
 
@@ -320,6 +323,22 @@ def test_start_page_renders_and_starts_interview(stub_backend):
     assert at.chat_input, "未完成的面试应提供回答输入框"
 
 
+def test_start_requires_candidate_name(stub_backend):
+    """称呼为必填：未填时禁用开始并显性化原因；填写后即可开始（不再有「可选」措辞）。"""
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    assert not at.exception
+
+    labels = [t.label for t in at.text_input]
+    assert "你的称呼" in labels, "开始页应提供称呼输入"
+    assert not any("可选" in label for label in labels if "称呼" in label), "称呼不应再标为可选"
+    captions = "\n".join(c.value for c in at.caption)
+    assert "请先填写你的称呼" in captions, "未填称呼应显性化按钮禁用原因"
+
+    _start_session(at)  # 内部会先填称呼再点开始
+    assert not at.exception
+    assert "Q1：Redis 缓存穿透怎么解决？" in "\n".join(m.value for m in at.markdown)
+
+
 def test_start_page_tabs_offer_train_entry(stub_backend):
     """首页三 Tab：模拟面试 / 刷题训练 / 效果看板并列，训练入口不经侧边栏即可直达。"""
     at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
@@ -345,6 +364,9 @@ def test_start_page_history_opens_existing_report(stub_backend):
     text = "\n".join(m.value for m in at.markdown)
     assert "ai_app" in text and "1 题" in text and "已完成" in text
     assert "进行中" in text, "未完成的会话应标注为进行中"
+    # 称呼列：历史记录应显示会话称呼（无称呼的历史数据回落为「—」）
+    assert "候选人乙" in text, "历史记录应显示候选人称呼"
+    assert "称呼" in [c.value for c in at.caption], "历史列表应有「称呼」表头"
 
     # 点开既有报告 → 切到报告页并复用同一份报告展示
     _button(at, "回看报告").click().run()

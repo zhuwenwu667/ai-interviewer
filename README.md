@@ -118,7 +118,7 @@ deploy/          deploy.sh（Linux 一键部署）
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/health` | 组件健康状态（配置 + Qdrant 连通），HTTP 200 = 进程存活；整体 `healthy`/`degraded` |
-| `POST` | `/sessions` | 创建会话（multipart：`track`、`num_questions`、`candidate_name`，可选 `resume`/`jd` 上传）；返回 201 + `SessionRecord` |
+| `POST` | `/sessions` | 创建会话（multipart：`track`、`candidate_name`〔**必填**〕、`num_questions`，可选 `resume`/`jd` 上传）；返回 201 + `SessionRecord` |
 | `POST` | `/sessions/{id}/messages` | 提交消息，返回 `text/event-stream`；`content` 为空且未开始 → 开场 + 第一题 |
 | `POST` | `/sessions/{id}/finish` | 提前结束并生成报告；已结束会话幂等返回既有报告 |
 | `GET` | `/sessions/{id}` | 会话详情 + 消息列表 |
@@ -295,7 +295,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（195 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（197 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -547,6 +547,27 @@ login→next→answer→history 全链路、未配置 503、错口令 401、未�
 > 部署注意：镜像已 `COPY data/eval/`（评测报告与基线随镜像分发，见 [Dockerfile](file:///c:/Users/50453/Desktop/面试项目/1/Dockerfile)），
 > 因此容器内看板读到的是**本次构建时点**的产物；重跑评测后需重新构建镜像（或在服务器上挂载 `data/eval`）才能看到新数字。
 
+### 6.13 称呼必填：让历史记录能「对得上人」（2026-10-18）
+
+**问题**：§6.11 的历史面试记录按时间/方向/题数/状态列出会话，但**没有称呼**——多场面试并列时，
+用户分不清「哪场是我的、哪场是同事的」；而「称呼」原本是可选字段，不填就存 `NULL`，列表更无从显示。
+
+**做法**：把称呼提升为**必填标识**，两层同时收口：
+① 前端开始页输入框去掉「（可选）」字样、加占位与说明，**未填时禁用「开始」按钮并用一行文字说明原因**
+（延续 §6.11「把禁用原因显性化」的做法，不让用户对着灰按钮猜）；
+② 后端 `POST /sessions` 的 `candidate_name` 改为 FastAPI 必填 Form 字段（`min_length=1`），并在路由内对
+**纯空白**再做一次 `strip` 校验 → 400 `INVALID_CANDIDATE_NAME`，避免「填了空格也算填」。
+历史列表新增**首列「称呼」**并补一行表头（称呼/时间/方向/题数/状态/操作）；历史遗留的空称呼会话回落显示「—」。
+**未改**：`CreateSessionRequest`/`SessionRecord`/DB 列仍保留可空——只收口在 **HTTP 边界**，历史数据与内部仓储调用不受影响。
+
+**实测**：`uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**（+2：`test_candidate_name_required`
+〔缺称呼 422 / 纯空白 400 / 带称呼 201〕、`test_start_requires_candidate_name`〔未填禁用并显性化原因 → 填写后正常开始〕）；
+`ruff check` 全过；`check_eval_gate.py` 退出码 0。
+
+**取舍**：只把必填收口在 **HTTP 层**，不动仓储模型与 DB 列——历史会话（含 `NULL` 称呼）与内部直调
+（`repo.create_session`）都继续可用，避免为一次产品化改动引发数据迁移；列表「称呼」列而非顶部搜索框——
+单账号演示场景下，一眼看到称呼即可，上搜索/过滤属过度工程。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -617,7 +638,8 @@ uv run python scripts/measure_context_budget.py --sessions 6 --questions 6   # �
 
 - 离线单测覆盖配置校验、切块/加载、RRF、检索改写开关、自适应循环、图路由、持久化、
   报告渲染、观察性与评测聚合、训练模式（认证/题库/接口/前端页）、**效果看板（多报告聚合与单位换算、
-  门禁结论复用与中文违规回显、无产物降级）**；集成测试用 `-m integration` 标记，与离线用例分离。
+  门禁结论复用与中文违规回显、无产物降级）**、**称呼必填（HTTP 层 Form 必填与空白拦截、前端必填与历史称呼列）**；
+  集成测试用 `-m integration` 标记，与离线用例分离。
 - 覆盖率配置见 `pyproject.toml` 的 `[tool.coverage.*]`；核心工具模块均 **≥70%**
   （chunker、RRF、状态路由、schemas、storage、adaptive）。
 

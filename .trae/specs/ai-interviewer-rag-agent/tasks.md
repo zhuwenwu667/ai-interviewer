@@ -968,6 +968,39 @@
     使聚合逻辑可脱库单测、单文件损坏只降级该项而非整体 500。
   - **文档回写**：README §5 接口表加 `GET /metrics`、新增 §6.12、§6.5 与 §8 单测数 191→195；
     `docs/interview_talk.md` 新增 §5.11 与 Q16、§5 概览工程侧单测数同步为 195 例（含集成 199 例）。
+  - **收尾（2026-10-18）**：线上证据回写（本段）经提交 `29cc1f7` 推送 GitHub 并 bundle 同步服务器 HEAD
+    （纯文档改动，无需重建镜像）。
+
+## Task 27: 称呼必填——让历史面试记录能「对得上人」（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **背景（对标竞品）**：Task 25 的历史面试记录按时间/方向/题数/状态列出会话，但**没有称呼**——
+    多场面试并列时分不清「哪场是谁的」；而「称呼」原本是可选字段，不填即 `NULL`，列表更无从显示。
+  - **实现**：
+    - 后端 `app/api/sessions.py`：`POST /sessions` 的 `candidate_name` 由可选改为 **FastAPI 必填 Form 字段**
+      （`min_length=1, max_length=100`），并在路由内再 `strip` 一次，**纯空白 → 400 `INVALID_CANDIDATE_NAME`**
+      （避免「填了空格也算填」）。
+    - 前端 `frontend/views_start.py`：称呼输入框去掉「（可选）」字样、加占位与说明；`disabled` 条件纳入称呼，
+      **未填时禁用「开始」并新增一行 `_render_cta_hint` 说明原因**（延续 Task 23「把禁用原因显性化」）；
+      下发时传 `candidate_name=name`（不再 `or None`）。历史记录列表**新增首列「称呼」**并补一行表头
+      （称呼/时间/方向/题数/状态/操作），历史遗留空称呼回落显示「—」。
+    - `app/api/schemas.py`：`CreateSessionRequest.candidate_name` 描述改为「HTTP 层必填；仓储模型允许为空以兼容历史数据」。
+  - **关键取舍**：**只把必填收口在 HTTP 边界**，`SessionRecord` / DB 列仍保留可空——①历史遗留会话（`NULL` 称呼）
+    照常可列；②内部 `repo.create_session` 直调与既有测试无需迁移。为一次展示改动做「存量回填 + 列改非空」
+    的数据迁移，收益只是校验更早一点，属过度工程。**列表加「称呼」列而非顶部搜索/过滤框**——单账号演示场景下
+    一眼看到称呼即达成目标，上搜索属过度工程。
+  - **单测**：`tests/test_api.py` 新增 `test_candidate_name_required`（缺称呼 → 422 `VALIDATION_ERROR`；
+    纯空白 → 400 `INVALID_CANDIDATE_NAME`；带称呼 → 201），并给既有建会话调用点补 `candidate_name`
+    （含列表用例断言 `sessions[i]["candidate_name"]` 与字段集合含 `candidate_name`）；
+    `tests/test_frontend.py` 新增 `test_start_requires_candidate_name`（未填禁用 + 原因显性化 → 填后正常开始），
+    列表用例补断言「历史应显示候选人称呼」与「称呼」表头，`_start_session` 辅助函数改为先填称呼再点开始。
+    `uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**（较改动前 +2）；`ruff check` 全过；
+    `check_eval_gate.py` 退出码 0。
+  - **文档回写**：README §5 接口表标注 `candidate_name` 必填、新增 §6.13（问题/做法/实测/取舍）、
+    §6.5 CI 与 §8 单测数 195→197；`docs/interview_talk.md` 新增 Q17、§5 概览单测数同步为 197 例（含集成 201 例）。
+  - **线上验证**：见下方「线上验证」小节（重建镜像后 `POST /sessions` 缺称呼 → 422；前端开始页未填禁用；
+    历史列表显示称呼）。
 
 ## 任务依赖与建议排期
 
@@ -994,3 +1027,4 @@
 | D20 | Task 24（作品集增强：训练模式加固——错题优先抽题与错题本） |
 | D21 | Task 25（作品集增强：面试历史回看 + 复练提升率） |
 | D22 | Task 26（作品集增强：效果看板——评测数字进产品） |
+| D23 | Task 27（作品集增强：称呼必填——历史记录可辨识到人） |

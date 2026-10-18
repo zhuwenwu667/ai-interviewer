@@ -133,12 +133,16 @@ async def _save_and_ingest(
 @router.post("/sessions", status_code=201, dependencies=[Depends(enforce_quota)])
 async def create_session(
     track: Annotated[str, Form(min_length=1, max_length=100)],
+    candidate_name: Annotated[str, Form(min_length=1, max_length=100)],
     services: Annotated[ServiceContainer, Depends(get_services)],
     num_questions: Annotated[int, Form(ge=1, le=10)] = 5,
-    candidate_name: Annotated[str | None, Form(max_length=100)] = None,
     resume: Annotated[UploadFile | None, File()] = None,
     jd: Annotated[UploadFile | None, File()] = None,
 ) -> SessionRecord:
+    # 称呼为必填：历史列表与报告用它标识每场面试（前端已强制，此处再挡纯空白）。
+    candidate_name = candidate_name.strip()
+    if not candidate_name:
+        raise ApiError(400, "INVALID_CANDIDATE_NAME", "候选人称呼不能为空")
     uploads = [
         (kb_type, *await _read_and_validate(services, upload))
         for upload, kb_type in ((resume, KbType.RESUME), (jd, KbType.JD))

@@ -258,7 +258,9 @@ def test_finish_endpoint_early_and_idempotent(tmp_path):
     llm = _llm(settings, ["开场。", _question_json("Q1？", "缓存", "ev-1")])
     container = _container(settings, llm, SessionRepository(tmp_path / "api.db"))
     client = _client(container)
-    sid = client.post("/sessions", data={"track": "backend", "num_questions": 5}).json()[
+    sid = client.post(
+        "/sessions", data={"track": "backend", "num_questions": 5, "candidate_name": "测试候选人"}
+    ).json()[
         "session_id"
     ]
     _post_sse(client, sid, "")  # 开始（出第一题，未作答）
@@ -289,7 +291,7 @@ def test_invalid_file_type_rejected(tmp_path):
     client = _client(container)
     resp = client.post(
         "/sessions",
-        data={"track": "backend"},
+        data={"track": "backend", "candidate_name": "测试候选人"},
         files={"resume": ("evil.exe", b"MZ-fake-binary", "application/octet-stream")},
     )
     err = _assert_error(resp, 400, "INVALID_FILE_TYPE")
@@ -302,7 +304,7 @@ def test_oversize_file_rejected(tmp_path):
     client = _client(container)
     resp = client.post(
         "/sessions",
-        data={"track": "backend"},
+        data={"track": "backend", "candidate_name": "测试候选人"},
         files={"resume": ("resume.md", "# 这份简历内容超过八字节".encode(), "text/markdown")},
     )
     _assert_error(resp, 413, "FILE_TOO_LARGE")
@@ -313,6 +315,18 @@ def test_missing_track_validation_error(tmp_path):
     client = _client(container)
     resp = client.post("/sessions", data={"num_questions": 3})  # 缺 track
     _assert_error(resp, 422, "VALIDATION_ERROR")
+
+
+def test_candidate_name_required(tmp_path):
+    """称呼为 HTTP 层必填：缺失 → 422；纯空白 → 400（而非静默存空串）。"""
+    container = _container(_settings(), _llm(_settings(), []), SessionRepository(tmp_path / "api.db"))
+    client = _client(container)
+    _assert_error(client.post("/sessions", data={"track": "backend"}), 422, "VALIDATION_ERROR")
+    _assert_error(
+        client.post("/sessions", data={"track": "backend", "candidate_name": "   "}),
+        400,
+        "INVALID_CANDIDATE_NAME",
+    )
 
 
 def test_unknown_session_all_endpoints_404(tmp_path):
@@ -331,7 +345,9 @@ def test_unknown_session_all_endpoints_404(tmp_path):
 def test_report_not_ready_404(tmp_path):
     container = _container(_settings(), _llm(_settings(), []), SessionRepository(tmp_path / "api.db"))
     client = _client(container)
-    sid = client.post("/sessions", data={"track": "backend"}).json()["session_id"]
+    sid = client.post(
+        "/sessions", data={"track": "backend", "candidate_name": "测试候选人"}
+    ).json()["session_id"]
     _assert_error(client.get(f"/sessions/{sid}/report"), 404, "REPORT_NOT_FOUND")
 
 
@@ -347,11 +363,15 @@ def test_list_sessions_orders_and_flags_report(tmp_path):
     assert client.get("/sessions").json() == {"sessions": []}  # 空列表
 
     # 会话1：仅创建（未开始、无报告）
-    sid1 = client.post("/sessions", data={"track": "backend", "num_questions": 1}).json()[
+    sid1 = client.post(
+        "/sessions", data={"track": "backend", "num_questions": 1, "candidate_name": "候选人甲"}
+    ).json()[
         "session_id"
     ]
     # 会话2：创建 → 开场 → 作答 → 结束并落报告
-    sid2 = client.post("/sessions", data={"track": "ai_app", "num_questions": 1}).json()[
+    sid2 = client.post(
+        "/sessions", data={"track": "ai_app", "num_questions": 1, "candidate_name": "候选人乙"}
+    ).json()[
         "session_id"
     ]
     _post_sse(client, sid2, "")
@@ -363,7 +383,13 @@ def test_list_sessions_orders_and_flags_report(tmp_path):
     assert sessions[0]["has_report"] is True and sessions[0]["track"] == "ai_app"
     assert sessions[0]["status"] == "finished"
     assert sessions[1]["has_report"] is False and sessions[1]["status"] == "active"
-    assert all({"session_id", "track", "num_questions", "has_report"} <= set(s) for s in sessions)
+    # 称呼随列表返回（历史记录按称呼标识每场面试）
+    assert sessions[0]["candidate_name"] == "候选人乙"
+    assert sessions[1]["candidate_name"] == "候选人甲"
+    assert all(
+        {"session_id", "track", "num_questions", "candidate_name", "has_report"} <= set(s)
+        for s in sessions
+    )
 
     # limit 生效
     assert len(client.get("/sessions", params={"limit": 1}).json()["sessions"]) == 1
@@ -514,9 +540,9 @@ def test_upstream_401_degrades_then_chinese_error_event(tmp_path):
         report_generator=LLMReportGenerator(llm, reports_dir=tmp_path / "reports"),
     )
     client = _client(container)
-    sid = client.post("/sessions", data={"track": "backend", "num_questions": 1}).json()[
-        "session_id"
-    ]
+    sid = client.post(
+        "/sessions", data={"track": "backend", "num_questions": 1, "candidate_name": "测试候选人"}
+    ).json()["session_id"]
 
     # 开场：greeting/出题均 401 → 兜底开场白 + 证据模板题，仍正常下发
     events = _post_sse(client, sid, "")
@@ -554,7 +580,9 @@ def test_real_full_chain_via_api():
     # 否则每个请求一个新循环，跨请求复用的 AsyncOpenAI/httpx 连接池会报
     # "Event loop is closed"（生产 uvicorn 单循环无此问题）。
     with TestClient(app) as client:
-        resp = client.post("/sessions", data={"track": "backend", "num_questions": 2})
+        resp = client.post(
+            "/sessions", data={"track": "backend", "num_questions": 2, "candidate_name": "测试候选人"}
+        )
         assert resp.status_code == 201, resp.text
         sid = resp.json()["session_id"]
 
