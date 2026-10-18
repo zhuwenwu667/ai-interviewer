@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agent.graph import EventSink, InterviewEngine
 from app.agent.report import ReportGenerationError
-from app.api.deps import ServiceContainer, get_services
+from app.api.deps import ServiceContainer, enforce_quota, get_services
 from app.api.errors import ApiError
 from app.api.schemas import (
     CreateSessionRequest,
@@ -129,7 +129,7 @@ async def _save_and_ingest(
 # ---------------------------------------------------------------------------
 # 路由
 # ---------------------------------------------------------------------------
-@router.post("/sessions", status_code=201)
+@router.post("/sessions", status_code=201, dependencies=[Depends(enforce_quota)])
 async def create_session(
     track: Annotated[str, Form(min_length=1, max_length=100)],
     services: Annotated[ServiceContainer, Depends(get_services)],
@@ -160,7 +160,7 @@ async def create_session(
     return record
 
 
-@router.post("/sessions/{session_id}/messages")
+@router.post("/sessions/{session_id}/messages", dependencies=[Depends(enforce_quota)])
 async def post_message(
     session_id: str,
     req: PostMessageRequest,
@@ -222,7 +222,7 @@ async def post_message(
     )
 
 
-@router.post("/sessions/{session_id}/finish")
+@router.post("/sessions/{session_id}/finish", dependencies=[Depends(enforce_quota)])
 async def finish_session(
     session_id: str, services: Annotated[ServiceContainer, Depends(get_services)]
 ) -> InterviewReport:

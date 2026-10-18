@@ -11,6 +11,7 @@ from __future__ import annotations
 import httpx
 from fastapi import APIRouter
 
+from app.api.quota import get_quota
 from app.config import get_settings
 
 router = APIRouter(tags=["health"])
@@ -59,3 +60,9 @@ async def health() -> dict[str, object]:
         "config": config,
         "components": {"qdrant": qdrant},
     }
+
+
+@router.get("/quota")
+async def quota() -> dict[str, object]:
+    """配额快照（P2-③）：限速配置 + 当日 LLM 用量/成本与熔断阈值，供运维观测。"""
+    return get_quota().snapshot()

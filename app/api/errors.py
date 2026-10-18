@@ -23,12 +23,18 @@ class ApiError(Exception):
     """业务错误：路由层显式抛出，由全局处理器转换为统一错误响应。"""
 
     def __init__(
-        self, status_code: int, code: str, message: str, details: dict | None = None
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers
         super().__init__(message)
 
 
@@ -46,6 +52,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content=_payload(exc.code, exc.message, exc.details),
+            headers=exc.headers,
         )
 
     @app.exception_handler(HTTPException)

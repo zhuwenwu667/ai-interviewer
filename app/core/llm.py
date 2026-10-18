@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -50,6 +50,7 @@ class DeepSeekChatClient:
         transport: httpx.BaseTransport | None = None,
         max_retries: int = 2,
         timeout: float = 60.0,
+        usage_sink: Callable[[int, int], None] | None = None,
     ) -> None:
         http_client = httpx.AsyncClient(transport=transport) if transport else None
         self._client = AsyncOpenAI(
@@ -62,6 +63,8 @@ class DeepSeekChatClient:
         self._settings = settings
         self._max_retries = max_retries
         self._provider = "DeepSeek"
+        # 用量回调（P2-③）：每次成功调用后上报 token，供每日成本熔断累计
+        self._usage_sink = usage_sink
 
     def _model_and_temperature(
         self, purpose: str, model: str | None, temperature: float | None
@@ -108,6 +111,8 @@ class DeepSeekChatClient:
                 completion_tokens=result.completion_tokens,
                 finish_reason=result.finish_reason,
             )
+        if self._usage_sink is not None:
+            self._usage_sink(result.prompt_tokens, result.completion_tokens)
         return result  # type: ignore[return-value]
 
     async def stream_chat(

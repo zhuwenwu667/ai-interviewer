@@ -286,7 +286,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（153 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（164 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -352,6 +352,38 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 > 完整对照见 [context_budget_20261018_100453.md](file:///c:/Users/50453/Desktop/面试项目/1/data/eval/reports/context_budget_20261018_100453.md)。
 > 复现：`uv run python scripts/measure_context_budget.py --sessions 6 --questions 6`（需独占 Qdrant 文件锁，先停后端）。
 
+### 6.8 公网限速与成本熔断：防止公开部署下的额度滥用（2026-10-18）
+
+**问题**：该项目以**公网 Streamlit 页面**为唯一入口，任何人都能触发「创建面试 → 出题 → 追问 → 生成报告」
+的全链路真实 LLM 调用。若没有闸门，一晚上的异常流量就能烧掉当日额度。
+
+**做法**：在**应用进程内存**中做两层防护（单实例部署够用，不引入 Redis），见 [quota.py](file:///c:/Users/50453/Desktop/面试项目/1/app/api/quota.py)：
+
+1. **每 IP 限速**（固定窗口）：只挂在**会花钱**的三个接口上——`POST /sessions`（含上传摄入）、
+   `POST /sessions/{id}/messages`（SSE）、`POST /sessions/{id}/finish`（生成报告）；超限返回
+   `429 RATE_LIMITED` 并带 `Retry-After`。**只读查询不限速**（GET 会话/报告），避免误伤正常浏览。
+2. **每日成本熔断**：跨全部客户端累计 LLM token 与预估成本（按配置单价折算，与评测脚本同口径），
+   任一达上限即返回 `503 BUDGET_EXHAUSTED`，**停止一切新的 LLM 消耗**；跨日自动重置。
+3. 新增 `GET /quota` 只读快照（限速配置 + 当日 token/成本与阈值），便于运维观测。
+
+**实测（本地真实起服务 + curl 打真实接口；2026-10-18）**：
+
+| 场景 | 配置 | 实测结果 |
+| --- | --- | --- |
+| 限速 | `RATE_LIMIT_PER_MINUTE=3` | 前 3 次 `201`，第 4/5 次 **`429` + `Retry-After: 60`** |
+| 限速（单次口径） | `RATE_LIMIT_PER_MINUTE=1` | 第 2 次 **`429`**，body `{"error":{"code":"RATE_LIMITED",...}}` |
+| 熔断 | `DAILY_TOKEN_BUDGET=0` | `POST /sessions` → **`503` `BUDGET_EXHAUSTED`**（"token 已达 0/0"） |
+| 观测 | `GET /quota` | `{"rate_limit":{...},"budget":{"day":"2026-10-18","tokens":0,...}}` |
+
+真实响应体示例（限速）：
+
+```json
+{"error":{"code":"RATE_LIMITED","message":"请求过于频繁：每个客户端每分钟最多 1 次，请 56 秒后重试。","details":{"used_in_window":3,"limit":1}}}
+```
+
+> 复现：`RATE_LIMIT_PER_MINUTE=3 COST_BUDGET_ENABLED=false uv run uvicorn app.main:app --port 8011`
+> 后用 curl 连打 `POST /sessions`；熔断可设 `DAILY_TOKEN_BUDGET=0` 起服务后直接验证 503。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -393,6 +425,10 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
   这些是**提示词卫生问题**，与「召回几条」无关。压缩上下文可**不牺牲召回质量**地省 token（-10.1%）；
   而砍召回条数会直接伤检索召回率（§6.1 已证 RRF 融合的价值）。故选择前者，且关闭预算即逐值复刻旧行为，
   便于同环境 A/B 拿真实数字判定「省下的 token 是否值得损失的那点细节」。
+- **为何限速/熔断放「进程内存」而不是 Redis**：单实例部署下内存计数已足够，且省掉一个组件与一份运维
+  （与 §6.6 复用 Qdrant 的取舍同源）。同时把限速**只挂在会花钱的接口**上、熔断做成**全局跨客户端**：
+  前者避免误伤只读浏览，后者保护的是「账号额度」而非「单用户公平性」——单个用户能被限速挡住，
+  但聚合流量仍需一个总量闸门。
 
 ## 8. 测试与代码质量
 

@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     ctx_report_source_max: int = 8  # 报告「知识来源」条数上限
     ctx_report_source_snippet_chars: int = 60  # 报告「知识来源」片段截断长度
 
+    # ---------- 公网限速与成本熔断（P2-③：防公网额度滥用）----------
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = 20  # 每个客户端 IP 对「会消耗 LLM 的公共接口」每分钟请求数上限
+    cost_budget_enabled: bool = True
+    daily_token_budget: int = 1_000_000  # 每日 LLM token 总量上限（跨全部客户端）
+    daily_cost_budget_cny: float = 20.0  # 每日 LLM 预估成本上限（按下方单价折算）
+    llm_input_price_per_m: float = 2.0  # 输入单价：元 / 百万 token（deepseek-chat 缓存未命中）
+    llm_output_price_per_m: float = 8.0  # 输出单价：元 / 百万 token
+
     # ---------- 切块 ----------
     chunk_size: int = 500
     chunk_overlap: int = 80

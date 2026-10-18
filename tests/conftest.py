@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from app.api.quota import QuotaManager, reset_quota
 from app.config import get_settings
+from app.config.settings import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +20,21 @@ def _isolate_settings(tmp_path, monkeypatch: pytest.MonkeyPatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _neutralize_quota():
+    """默认关闭限速与成本熔断，避免「每 IP 每分钟请求数」让无关用例相互串扰。
+
+    配额行为由 ``tests/test_quota.py`` 显式构造 ``QuotaManager`` 用例覆盖。
+    """
+    reset_quota(
+        QuotaManager(
+            Settings(_env_file=None, rate_limit_enabled=False, cost_budget_enabled=False)
+        )
+    )
+    yield
+    reset_quota(None)
 
 
 @pytest.fixture

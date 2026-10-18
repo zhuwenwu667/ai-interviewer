@@ -630,6 +630,60 @@
   - `rule` TR-20.2: 开启预算时证据片段按配置截断、`recent_asked` 只保留最近 N 条、`limit_sources` 按上限保序裁剪。
   - `rule` TR-20.3: 报告 prompt 在开/关预算两态下，知识来源条数与片段长度分别被裁剪 / 保留全量。
 
+## Task 21: 公网限速与成本熔断——防额度滥用（作品集增强 P2-③）
+
+- **Status**: `completed`（实现、单测、真实起服务 curl 取证、文档回写完成）
+- **Completion Evidence**:
+  - **实现**：新建 `app/api/quota.py`——`RateLimiter`（**固定窗口**，`window_seconds=60`，`check(key)`
+    超限返回 `429 RATE_LIMITED` + `retry_after`）、`DailyBudget`（累计 `prompt/completion` token，按
+    `LLM_INPUT_PRICE_PER_M` / `LLM_OUTPUT_PRICE_PER_M` 折算预估成本，任一超限返回 `503 BUDGET_EXHAUSTED`，
+    跨日自动重置）、`QuotaManager`（`check_request` **先熔断后限速**、`record_usage`、`snapshot`）与模块级单例
+    `get_quota()` / `reset_quota()`。新增配置 `RATE_LIMIT_ENABLED`（默认 true）/ `RATE_LIMIT_PER_MINUTE`（20）/
+    `COST_BUDGET_ENABLED`（true）/ `DAILY_TOKEN_BUDGET`（1_000_000）/ `DAILY_COST_BUDGET_CNY`（20.0）/
+    `LLM_INPUT_PRICE_PER_M`（2.0）/ `LLM_OUTPUT_PRICE_PER_M`（8.0）。
+  - **接入接口**：`app/api/deps.py` 新增 `_client_key(request)`（优先取 `X-Forwarded-For` 首个 IP，否则
+    `request.client.host`）与 `enforce_quota(request)`（不允许时抛 `ApiError`，带 `details` 与 `Retry-After` 头）；
+    三个**会花钱**的接口（`POST /sessions`、`POST /sessions/{id}/messages`、`POST /sessions/{id}/finish`）挂
+    `dependencies=[Depends(enforce_quota)]`；只读 GET 不限速。`app/api/errors.py` 的 `ApiError` 增 `headers` 字段并由
+    处理器透传；`app/api/health.py` 新增只读 `GET /quota` 返回 `get_quota().snapshot()`。
+  - **用量回灌**：`app/core/llm.py` 的 `DeepSeekChatClient` 新增 `usage_sink: Callable[[int,int],None]`，`chat()`
+    成功后回灌 `(prompt_tokens, completion_tokens)`；`build_services` / `build_override_services` 注入
+    `usage_sink=get_quota().record_usage`（`stream_chat` 不计数，实际面试路径只用 `chat`）。
+  - **单测**：新建 `tests/test_quota.py`（11 例，FakeClock 控时钟）：限速超限 429 + 窗口恢复 + key 隔离、
+    token 熔断、成本熔断、跨日重置、开关关闭恒放行、熔断优先于限速，以及 HTTP 集成
+    （`POST /sessions` 429 + `Retry-After`；熔断 503；只读 `GET /quota` 不受限速；快照 shape）。
+    `tests/conftest.py` 新增 autouse `_neutralize_quota`（默认关限速/熔断，避免串扰既有用例）。
+    `uv run pytest -q -m "not integration"` → **164 passed / 1 skipped**（4 例集成 deselected；含集成共 168）；
+    `ruff check app tests scripts` → All checks passed；`uv run python scripts/check_eval_gate.py` → 退出码 0。
+  - **真实起服务 curl 取证（2026-10-18 本地 uvicorn，端口 8011/8012/8013，用完即停）**：
+    - `RATE_LIMIT_PER_MINUTE=3` → 前 3 次 `201`，第 4/5 次 **`429` + 响应头 `Retry-After: 60`**；
+    - `RATE_LIMIT_PER_MINUTE=1` → 第 2 次 `429`，body
+      `{"error":{"code":"RATE_LIMITED","message":"请求过于频繁：每个客户端每分钟最多 1 次，请 56 秒后重试。","details":{"used_in_window":3,"limit":1}}}`；
+    - `DAILY_TOKEN_BUDGET=0` → `POST /sessions` **`503 BUDGET_EXHAUSTED`**（message 含 "token 已达 0/0"）；
+    - 只读 `GET /quota` 分别返回 `{"rate_limit":{"enabled":true,"per_minute":3},"budget":{"enabled":false}}`
+      与 `{"rate_limit":{"enabled":false,"per_minute":null},"budget":{"enabled":true,"day":"2026-10-18","calls":0,"tokens":0,"cost_cny":0.0,"max_tokens":0,"max_cost_cny":20.0,...}}`。
+  - **文档回写**：README 新增 §6.8 与 §7 一条取舍、§8 CI 单测数改 164；`docs/interview_talk.md` 新增 §5.8、
+    §6「下一步」标记第 ⑤ 项完成、单测数改 164；`.env.example` 补 7 项配额配置。
+- **Progress Notes**（实现要点存档）:
+  - 选型**进程内存而非 Redis**：单实例部署下固定窗口与当日累计都不需要跨进程共享，拉 Redis 属过度工程
+    （多一组件、多一份运维），与 §5.6「复用 Qdrant 而非另起缓存」同一取舍逻辑。
+  - **熔断优先于限速**：先判断当日额度是否耗尽，再判单 IP 频率——额度没了限速放行也没意义，顺序保证
+    「配额保护」成为最后一道闸门。
+  - 限速**只挂会花钱的三个接口**、熔断做成**全局跨客户端**：前者避免误伤只读浏览（`GET /sessions`、`GET /quota`
+    不限速）；后者保护的是「账号额度」而非「单用户公平性」——单用户能被限速挡住，聚合流量仍需总量闸门。
+  - `usage_sink` 回调注入而非在配额模块内包 LLM：让 LLM 客户端保持对配额**零依赖**，配额只做「记账 + 判定」，
+    依赖方向单向、可单测。
+- **Priority**: high
+- **Depends On**: Task 15, Task 19
+- **Description**:
+  - 给以公网为唯一入口的面试全链路加两层闸门：每 IP 每分钟请求数限速 + 每日 token/成本全局熔断，防额度滥用。
+  - 提供只读用量快照接口与开关（关闭即行为不变），并以真实起服务 curl 取证状态码与响应头。
+- **Acceptance Criteria Addressed**: AC-8, AC-12
+- **Test Requirements**:
+  - `rule` TR-21.1: 固定窗口内超限即 `429 RATE_LIMITED` 且带 `Retry-After`；窗口滚动后恢复；不同 key 互不影响。
+  - `rule` TR-21.2: 当日 token 或成本达上限即 `503 BUDGET_EXHAUSTED`；跨日自动重置；熔断判定优先于限速。
+  - `rule` TR-21.3: 开关关闭时恒放行；HTTP 集成下「花钱接口」受限、「只读 `GET /quota`」不受限，快照 shape 稳定。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -649,3 +703,4 @@
 | D14 | Task 18（作品集增强：评测回归门禁接入 CI） |
 | D15 | Task 19（作品集增强 P2-①：语义缓存降低重复出题延迟/成本/ token） |
 | D16 | Task 20（作品集增强 P2-②：上下文预算压缩 token 与成本） |
+| D17 | Task 21（作品集增强 P2-③：公网限速与成本熔断防额度滥用） |

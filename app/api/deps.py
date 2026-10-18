@@ -14,6 +14,8 @@ from fastapi import Request
 
 from app.agent.graph import ReportGenerator
 from app.agent.report import build_report_generator
+from app.api.errors import ApiError
+from app.api.quota import get_quota
 from app.config import get_settings
 from app.config.settings import Settings
 from app.core.embedding import SiliconFlowEmbedder
@@ -48,7 +50,8 @@ class ServiceContainer:
 
 def build_services(settings: Settings) -> ServiceContainer:
     """生产装配：真实模型客户端 + 本地/远端 Qdrant + SQLite 仓储 + 混合检索。"""
-    llm = DeepSeekChatClient(settings)
+    # LLM 用量上报到进程级配额管理器，供「每日成本熔断」累计（P2-③）
+    llm = DeepSeekChatClient(settings, usage_sink=get_quota().record_usage)
     embedder = SiliconFlowEmbedder(settings)
     reranker = SiliconFlowReranker(settings)
     store = QdrantStore(settings)
@@ -85,7 +88,7 @@ def build_override_services(
     base: ServiceContainer, settings: Settings
 ) -> ServiceContainer:
     """按覆盖后的配置重建模型客户端与检索器；复用基础容器的向量库与仓储。"""
-    llm = DeepSeekChatClient(settings)
+    llm = DeepSeekChatClient(settings, usage_sink=get_quota().record_usage)
     embedder = SiliconFlowEmbedder(settings)
     reranker = SiliconFlowReranker(settings)
     retriever = Retriever(settings, base.store, embedder, reranker, llm)
@@ -132,4 +135,30 @@ def get_services(request: Request) -> ServiceContainer:
         overridden = _with_key_overrides(services.settings, deepseek_key, siliconflow_key)
         cache[key] = build_override_services(services, overridden)
     return cache[key]
+
+
+def _client_key(request: Request) -> str:
+    """客户端标识：优先取反向代理透传的真实 IP，否则取直连地址。"""
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
+
+
+def enforce_quota(request: Request) -> None:
+    """公网配额门禁（P2-③）：先查「每日成本熔断」，再查「每 IP 限速」。
+
+    仅挂在**会消耗 LLM** 的公共接口上（创建会话 / SSE 消息 / 提前结束）；
+    只读查询不限速，避免误伤正常浏览。
+    """
+    decision = get_quota().check_request(_client_key(request))
+    if decision.allowed:
+        return
+    raise ApiError(
+        decision.status_code,
+        decision.code,
+        decision.message,
+        details=decision.details or None,
+        headers={"Retry-After": str(decision.retry_after)} if decision.retry_after else None,
+    )
 
