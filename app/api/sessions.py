@@ -152,6 +152,7 @@ async def create_session(
         await _save_and_ingest(services, record.session_id, filename, data, kb_type)
     if uploads:
         count = services.retriever.refresh_bm25()
+        services.cache.clear()  # 知识库已变，清空语义缓存避免检索结果陈旧
         logger.info(
             "上传摄入完成 session=%s 文件数=%d BM25 索引=%d chunks",
             record.session_id, len(uploads), count,

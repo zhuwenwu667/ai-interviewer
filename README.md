@@ -286,7 +286,44 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（146 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（147 passed / 1 skipped）→ `check_eval_gate.py`。
+
+### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
+
+**问题**：§6.2 实测把瓶颈定位到 `ask_question`（10.7s）——每道题都要走「查询改写 LLM → 向量化 →
+双路召回 → 精排 → 充足性自评」约 6 次 LLM 往返。而 §6.1 又显示该自适应管线**几乎每次都跑到
+`max_rewrite_rounds` 上限**（54 次 rewrite / 18 次出题 = 3.0 次/题），即这套昂贵管线在**同一查询上被反复执行**。
+
+**做法**：给检索加**查询级语义缓存**（[cache.py](file:///c:/Users/50453/Desktop/面试项目/1/app/rag/cache.py)），
+命中即**整体跳过**上述管线：
+
+1. **复用已有 Qdrant**，不引入 Redis：新增独立集合 `{collection}__semantic_cache`，与知识库集合隔离，
+   但**共用同一 Qdrant 客户端**（local 模式下同路径多客户端会争抢文件锁）。
+2. 命中判定为查询向量的**余弦相似度 ≥ 0.95**；`scope`（`kb_types|top_k`）作 payload 过滤，避免不同检索范围互相污染。
+3. 结果带 **TTL（1800s）**，超期视为未命中并删除；**知识库摄入/上传后自动清空缓存**，避免检索结果陈旧。
+4. 缓存实体是**序列化后的整包检索结果**（`AdaptiveResult` ↔ `asdict` 无损往返），命中即等价于「重放」该次检索。
+5. `SEMANTIC_CACHE_ENABLED` 可**运行时开关**，用于**同环境 A/B 对照**。
+
+**实测（同一批真实面试，仅缓存开关不同；2026-10-18）**：
+
+| 维度 | 缓存关闭（基线） | 缓存打开 | 变化 |
+| --- | --- | --- | --- |
+| `ask_question` 平均耗时 | 9194.1ms | **3182.2ms** | **-65.4%** |
+| `ask_question` P50 | 9110.8ms | 1720.7ms | — |
+| 单场面试总耗时 | 43.65s | **25.84s** | **-40.8%** |
+| 单场成本（估） | ¥0.0529 | **¥0.0377** | **-28.7%** |
+| LLM 调用总数 | 174 | **90** | **-48.3%** |
+| LLM 总 token | 86847 | **59654** | **-31.3%** |
+| rewrite 调用 / token | 54 / 10295 | **12 / 2281** | -77.8% |
+| eval 调用 / token | 96 / 65591 | 54 / 47243 | -43.8% |
+| rerank 调用 | 54 | 12 | -77.8% |
+
+缓存自身统计：查询 18 次、**命中 14 次**、命中率 **0.778**（阈值 0.95，TTL 1800s）。
+出题查询在同一会话内恒定（`{track} 方向面试题`），故同一 track 的重复出题可命中——**4 次未命中即 4 个不同 track 的首次出现**。
+两遍的作答均分区间一致（1.0–1.4），**出题质量未观测到退化**。
+
+> 完整对照见 [semantic_cache_20261018_093958.md](file:///c:/Users/50453/Desktop/面试项目/1/data/eval/reports/semantic_cache_20261018_093958.md)。
+> 复现：`uv run python scripts/measure_semantic_cache.py --sessions 6 --questions 5`（需独占 Qdrant 文件锁，先停后端）。
 
 ## 7. 关键设计取舍
 
@@ -318,6 +355,13 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 - **为何门禁「校验报告」而非「CI 里重跑评测」**：评测是有密钥、有费用、数分钟且受 TPM 限速的**重活**，
   放进 CI 会让每次提交都烧额度、且结果受外部服务抖动影响不可复现。故把评测拆成「**发布前手动跑、报告入库**」
   与「**CI 秒级校验已入库报告**」两段：门禁要的是**确定性与可控成本**，不是「CI 里什么都跑」（§6.5）。
+- **为何缓存「复用 Qdrant」而非引入 Redis**：本项目的检索结果本来就以向量形态躺在 Qdrant 里，缓存命中判定
+  天然就是**一次向量相似度查询**；复用同一客户端还规避了 `local` 模式下多客户端争抢文件锁的部署坑。
+  为缓存单独拉起一个 Redis 属**过度工程**——多一个组件、多一份运维、且与现有 Qdrant 部署语义重复（§6.6）。
+- **为何缓存「整包检索结果」而非只缓存 embedding**：真正贵的是**查询改写 LLM + 充足性自评 LLM**（§6.2 定位的
+  6 次往返），只缓存 embedding 省不到大头。缓存整包 `AdaptiveResult`，命中即**重放**该次检索的召回+精排结果，
+  用**无损序列化往返**（有单测覆盖）保证「命中结果 == 重跑结果」。带 TTL 与「知识库变更即清空」两道失效防线，
+  把「缓存陈旧」这一缓存系统的经典失败模式显式管住。
 
 ## 8. 测试与代码质量
 
@@ -328,6 +372,7 @@ uv run pytest -m integration                      # 仅集成测试（真实 Qdr
 uv run pytest -q -m "not integration" --cov=app --cov-report=term-missing   # 覆盖率
 uv run ruff check app tests frontend              # 静态检查
 uv run python scripts/check_eval_gate.py          # 评测回归门禁（校验最新报告，跌出阈值即非零退出）
+uv run python scripts/measure_semantic_cache.py --sessions 6 --questions 5   # 语义缓存 A/B 对照实测（需停后端）
 ```
 
 > CI（`.github/workflows/ci.yml`）自动执行：`ruff` → `pytest -m "not integration"` → `check_eval_gate.py`，

@@ -530,6 +530,57 @@
   - `rule` TR-18.1: 健康报告通过；缺指标 / 低于阈值 / 拒答率不足 / 存在执行失败 / 基线跌幅超限五类违规均能被 `check_report` 检出。
   - `rule` TR-18.2: 门禁退出码契约（0 通过 / 2 违规 / 1 报告缺失）稳定，且 `latest_report` 取最新一份报告。
 
+## Task 19: 语义缓存——复用 Qdrant 跳过重复出题的检索管线（作品集增强 P2-①）
+
+- **Status**: `completed`（实现、单测、真实 A/B 实测取证、文档回写完成）
+- **Completion Evidence**:
+  - **实现**：新建 `app/rag/cache.py`——`SemanticCache(settings, store, embedder)`，`get(query, scope)` /
+    `put(query, scope, result)` / `clear()` / `stats()`；新增配置 `SEMANTIC_CACHE_ENABLED`（默认 true）/
+    `SEMANTIC_CACHE_THRESHOLD`（0.95）/ `SEMANTIC_CACHE_TTL_SECONDS`（1800）。
+  - **复用 Qdrant**：`QdrantStore` 新增独立集合 `{collection}__semantic_cache`（与知识库集合隔离，**共用同一客户端**，
+    规避 local 模式多客户端争抢文件锁）；新增 `upsert_semantic_cache` / `search_semantic_cache` / `delete_semantic_cache` /
+    `clear_semantic_cache`（server 模式对 `scope` 建 payload 索引）。
+  - **接入检索**：`AdaptiveRetriever.retrieve` 先查缓存，命中直接返回；未命中则走原 `_retrieve_uncached` 并回填。
+    `scope = kb_types|top_k` 避免跨检索范围污染。`RetrievedChunk.from_dict` / `RetrievalResult.from_dict` /
+    `AdaptiveResult.from_dict` 提供与 `dataclasses.asdict` 的**无损往返**。
+  - **失效防线**：TTL 超期即删点并视为未命中；上传摄入（`app/api/sessions.py`）与知识库摄入（`scripts/ingest_kb.py`）
+    完成后调用 `clear()` 清空缓存。
+  - **装配**：`app/api/deps.py` 的 `build_services` 构造 `cache` 并注入 `AdaptiveRetriever`；`ServiceContainer` 新增 `cache` 字段。
+  - **单测**：新建 `tests/test_semantic_cache.py`（5 例，真实 Qdrant local 模式 + 假 embedding/检索）：
+    序列化无损往返、相似度命中/未命中与 scope 隔离、关闭开关为空操作、`clear()` 失效、
+    `AdaptiveRetriever` 二次查询命中缓存（底层 Retriever 只被调用 1 次）。`uv run pytest -q -m "not integration"`
+    → **147 passed, 1 skipped**（4 例集成 deselected；全量 151 passed）；`ruff check app tests scripts` → All checks passed。
+  - **真实 A/B 实测（2026-10-18，同一批真实面试、仅缓存开关不同）**：新建 `scripts/measure_semantic_cache.py`
+    （复用 `measure_session_cost._run_sessions/_aggregate`，新增 `cache_enabled` / `reset_cache` 参数与 `set_enabled` 开关）。
+    `uv run python scripts/measure_semantic_cache.py --sessions 6 --questions 5` →
+    报告 `data/eval/reports/semantic_cache_20261018_093958.{json,md}`：
+    - `ask_question` 平均 **9194.1ms → 3182.2ms（-65.4%）**，P50 **9110.8ms → 1720.7ms**；
+    - 单场总耗时 **43.65s → 25.84s（-40.8%）**；单场成本（估）**¥0.052887 → ¥0.037707（-28.7%）**；
+    - LLM 调用 **174 → 90（-48.3%）**；总 token **86847 → 59654（-31.3%）**；
+    - rewrite 调用/token **54/10295 → 12/2281（-77.8%）**；eval 调用 **96 → 54（-43.8%）**；rerank **54 → 12（-77.8%）**；
+    - 缓存自身：查询 18、命中 14、未命中 4、写入 4，**命中率 0.7778**（阈值 0.95，TTL 1800s）；
+    - 两遍作答均分区间一致（1.0–1.4），**出题质量未观测到退化**。
+  - **文档回写**：README 新增 §6.6 与 §7 两条取舍、§8 命令块；`docs/interview_talk.md` 新增 §5.6、Q14，
+    Q10 改为「已落地语义缓存」、§6「下一步 」标记完成、单测数改 147；`.env.example` 补 3 项缓存配置。
+- **Progress Notes**（实现要点存档）:
+  - 选型**复用 Qdrant 而非引入 Redis**：检索结果本就以向量形态存于 Qdrant，命中判定天然是一次相似度查询；
+    单独拉 Redis 属过度工程（多组件、多运维），且共用同一客户端规避了 local 模式的文件锁冲突。
+  - 缓存**整包检索结果**而非只缓存 embedding：真正的开销是改写与自评两个 LLM（§6.1 显示自适应管线几乎每次跑满轮数），
+    只缓存 embedding 省不到大头；整包重放用无损序列化往返保证「命中 == 重跑」。
+  - 命中阈值取 **0.95** 偏保守：意图是「只对几乎完全相同的查询命中」，宁可不命中也不给近似答案；
+    实测 0.778 命中率来自「同 track 重复出题」，4 次未命中恰为 4 个不同 track 的首次出现。
+  - 加 `set_enabled` 运行时开关是为了**同环境 A/B**（同一实例即时切换），避免「两台机器/两次部署」引入的可比性噪声。
+- **Priority**: high
+- **Depends On**: Task 15, Task 16, Task 18
+- **Description**:
+  - 用查询级语义缓存跳过「查询改写 + 向量化 + 双路召回 + 精排 + 充足性自评」这条在重复出题上被反复执行的昂贵管线。
+  - 复用已有 Qdrant 承载缓存，提供 TTL 与知识库变更失效两道防线，并给出真实 A/B 的延迟/成本/token 降幅。
+- **Acceptance Criteria Addressed**: AC-8, AC-12
+- **Test Requirements**:
+  - `rule` TR-19.1: `AdaptiveResult` 经 `asdict` → `from_dict` 往返后与原对象相等（缓存重放等价性）。
+  - `rule` TR-19.2: 相似度 ≥ 阈值且 scope 相同才命中；低于阈值或不同 scope 不命中；`enabled=False` 时 get/put 为空操作。
+  - `rule` TR-19.3: `clear()` 后同查询不再命中；`AdaptiveRetriever` 二次相同查询由缓存服务、底层 Retriever 仅调用一次。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -547,3 +598,4 @@
 | D12 | Task 16（作品集增强：judge 自评偏置治理 + 异源 judge 交叉验证） |
 | D13 | Task 17（作品集增强：引用质量度量升级为来源 P/R/F1） |
 | D14 | Task 18（作品集增强：评测回归门禁接入 CI） |
+| D15 | Task 19（作品集增强 P2-①：语义缓存降低重复出题延迟/成本/ token） |

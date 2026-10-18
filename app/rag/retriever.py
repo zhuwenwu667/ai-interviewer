@@ -65,6 +65,19 @@ class RetrievedChunk:
     def hit_by_bm25(self) -> bool:
         return self.bm25_rank is not None
 
+    @classmethod
+    def from_dict(cls, data: dict) -> RetrievedChunk:
+        """从 ``dataclasses.asdict`` 产物还原（语义缓存用）。"""
+        return cls(
+            chunk=Chunk.from_payload(data["chunk"]),
+            vector_score=data.get("vector_score"),
+            vector_rank=data.get("vector_rank"),
+            bm25_rank=data.get("bm25_rank"),
+            rrf_score=data.get("rrf_score", 0.0),
+            rerank_score=data.get("rerank_score"),
+            matched_queries=list(data.get("matched_queries") or []),
+        )
+
 
 @dataclass
 class RetrievalTrace:
@@ -91,6 +104,14 @@ class RetrievalTrace:
 class RetrievalResult:
     chunks: list[RetrievedChunk]  # 按 rerank_score 降序
     trace: RetrievalTrace
+
+    @classmethod
+    def from_dict(cls, data: dict) -> RetrievalResult:
+        """从 ``dataclasses.asdict`` 产物还原（语义缓存用）。"""
+        return cls(
+            chunks=[RetrievedChunk.from_dict(c) for c in data["chunks"]],
+            trace=RetrievalTrace(**data["trace"]),
+        )
 
 
 class Retriever:

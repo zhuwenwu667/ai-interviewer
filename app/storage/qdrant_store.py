@@ -44,6 +44,9 @@ class QdrantStore:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self.collection = settings.qdrant_collection
+        # 语义缓存集合（P2-①）：与知识库集合隔离，但复用同一 Qdrant 客户端，
+        # 规避 local 模式下同路径多客户端争抢文件锁的问题。
+        self.cache_collection = f"{self.collection}__semantic_cache"
         if settings.qdrant_mode == "local":
             settings.qdrant_path_abs.mkdir(parents=True, exist_ok=True)
             self._client = QdrantClient(path=str(settings.qdrant_path_abs))
@@ -56,13 +59,17 @@ class QdrantStore:
 
     def _ensure_collection(self) -> None:
         existing = {c.name for c in self._client.get_collections().collections}
+        vectors_config = qm.VectorParams(
+            size=self._settings.embedding_dim,
+            distance=qm.Distance.COSINE,
+        )
         if self.collection not in existing:
             self._client.create_collection(
-                collection_name=self.collection,
-                vectors_config=qm.VectorParams(
-                    size=self._settings.embedding_dim,
-                    distance=qm.Distance.COSINE,
-                ),
+                collection_name=self.collection, vectors_config=vectors_config
+            )
+        if self.cache_collection not in existing:
+            self._client.create_collection(
+                collection_name=self.cache_collection, vectors_config=vectors_config
             )
         # payload 索引：local 模式不支持（会告警且无效），仅 server 模式创建
         if self._settings.qdrant_mode == "server":
@@ -75,6 +82,14 @@ class QdrantStore:
                     )
                 except Exception:  # noqa: BLE001 - 索引已存在属正常
                     pass
+            try:
+                self._client.create_payload_index(
+                    collection_name=self.cache_collection,
+                    field_name="scope",
+                    field_schema="keyword",
+                )
+            except Exception:  # noqa: BLE001 - 索引已存在属正常
+                pass
 
     # ---------- 写入侧 ----------
     def reset_collection(self) -> None:
@@ -180,6 +195,66 @@ class QdrantStore:
             (Chunk.from_payload(dict(point.payload)), float(point.score))
             for point in response.points
         ]
+
+    # ---------- 语义缓存集合（P2-①）----------
+    def upsert_semantic_cache(self, point_id: str, vector: Sequence[float], payload: dict) -> None:
+        """写入 / 覆盖一条语义缓存点（point_id 为稳定 UUID）。"""
+        self._client.upsert(
+            collection_name=self.cache_collection,
+            points=[qm.PointStruct(id=point_id, vector=list(vector), payload=payload)],
+            wait=True,
+        )
+
+    def search_semantic_cache(
+        self,
+        vector: Sequence[float],
+        *,
+        scope: str,
+        score_threshold: float,
+        limit: int = 1,
+    ) -> list[tuple[dict, float]]:
+        """按查询向量检索缓存，返回 (payload, 相似度) 按分数降序（低于阈值不返回）。"""
+        response = self._client.query_points(
+            collection_name=self.cache_collection,
+            query=list(vector),
+            query_filter=qm.Filter(
+                must=[qm.FieldCondition(key="scope", match=qm.MatchValue(value=scope))]
+            ),
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        return [(dict(point.payload), float(point.score)) for point in response.points]
+
+    def delete_semantic_cache(self, point_id: str) -> None:
+        self._client.delete(
+            collection_name=self.cache_collection,
+            points_selector=[point_id],
+            wait=True,
+        )
+
+    def clear_semantic_cache(self) -> int:
+        """清空缓存集合（知识库变更后调用），返回删除的点数。"""
+        point_ids: list[str | int] = []
+        offset: int | None = None
+        while True:
+            records, next_offset = self._client.scroll(
+                collection_name=self.cache_collection,
+                limit=512,
+                offset=offset,
+                with_payload=False,
+                with_vectors=False,
+            )
+            point_ids.extend(record.id for record in records)
+            offset = next_offset
+            if not offset:
+                break
+        if point_ids:
+            self._client.delete(
+                collection_name=self.cache_collection,
+                points_selector=point_ids,
+                wait=True,
+            )
+        return len(point_ids)
 
     def close(self) -> None:
         self._client.close()

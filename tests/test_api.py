@@ -104,6 +104,7 @@ def _container(settings, llm, repo, report_generator=None) -> ServiceContainer:
         reranker=None,  # type: ignore[arg-type]
         retriever=None,  # type: ignore[arg-type]
         adaptive=_FakeAdaptive(),  # type: ignore[arg-type]
+        cache=None,  # type: ignore[arg-type]
         llm=llm,
         report_generator=report_generator or default_report_generator,
     )

@@ -20,6 +20,7 @@ from app.core.embedding import SiliconFlowEmbedder
 from app.core.llm import DeepSeekChatClient
 from app.core.reranker import SiliconFlowReranker
 from app.rag.adaptive import AdaptiveRetriever
+from app.rag.cache import SemanticCache
 from app.rag.retriever import Retriever
 from app.storage.db import SessionRepository
 from app.storage.qdrant_store import QdrantStore
@@ -40,6 +41,7 @@ class ServiceContainer:
     reranker: SiliconFlowReranker
     retriever: Retriever
     adaptive: AdaptiveRetriever
+    cache: SemanticCache
     llm: DeepSeekChatClient
     report_generator: ReportGenerator
 
@@ -51,7 +53,8 @@ def build_services(settings: Settings) -> ServiceContainer:
     reranker = SiliconFlowReranker(settings)
     store = QdrantStore(settings)
     retriever = Retriever(settings, store, embedder, reranker, llm)
-    adaptive = AdaptiveRetriever(settings, retriever, llm)
+    cache = SemanticCache(settings, store, embedder)
+    adaptive = AdaptiveRetriever(settings, retriever, llm, cache=cache)
     return ServiceContainer(
         settings=settings,
         repo=SessionRepository(settings.sqlite_path_abs),
@@ -60,6 +63,7 @@ def build_services(settings: Settings) -> ServiceContainer:
         reranker=reranker,
         retriever=retriever,
         adaptive=adaptive,
+        cache=cache,
         llm=llm,
         report_generator=build_report_generator(settings, llm),
     )
@@ -85,7 +89,8 @@ def build_override_services(
     embedder = SiliconFlowEmbedder(settings)
     reranker = SiliconFlowReranker(settings)
     retriever = Retriever(settings, base.store, embedder, reranker, llm)
-    adaptive = AdaptiveRetriever(settings, retriever, llm)
+    # 语义缓存复用基础容器（同一集合与客户端，embedding 模型不变，无需重建）
+    adaptive = AdaptiveRetriever(settings, retriever, llm, cache=base.cache)
     return ServiceContainer(
         settings=settings,
         repo=base.repo,
@@ -94,6 +99,7 @@ def build_override_services(
         reranker=reranker,
         retriever=retriever,
         adaptive=adaptive,
+        cache=base.cache,
         llm=llm,
         report_generator=build_report_generator(settings, llm),
     )

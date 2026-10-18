@@ -93,9 +93,14 @@ def _stat(values: list[float]) -> dict:
     }
 
 
-async def _run_sessions(args: argparse.Namespace) -> tuple[dict, list[str]]:
+async def _run_sessions(
+    args: argparse.Namespace, *, cache_enabled: bool = True, reset_cache: bool = False
+) -> tuple[dict, list[str]]:
     settings = validate_runtime(require=("chat", "embedding"))
     services = build_services(settings)
+    services.cache.set_enabled(cache_enabled)
+    if reset_cache:
+        services.cache.clear()
     trace_path = settings.resolve(TRACES_FILE)
     sessions_meta: list[dict] = []
     ids: list[str] = []
@@ -160,6 +165,7 @@ async def _run_sessions(args: argparse.Namespace) -> tuple[dict, list[str]]:
                 }
             )
     finally:
+        cache_stats = services.cache.stats()
         await services.llm.close()
         await services.embedder.close()
         services.store.close()
@@ -176,7 +182,7 @@ async def _run_sessions(args: argparse.Namespace) -> tuple[dict, list[str]]:
                 continue
             if rec.get("trace_id") in spans_by_session:
                 spans_by_session[rec["trace_id"]].append(rec)
-    return {"sessions": sessions_meta, "spans": spans_by_session}, ids
+    return {"sessions": sessions_meta, "spans": spans_by_session, "cache": cache_stats}, ids
 
 
 def _aggregate(data: dict) -> dict:

@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     retrieval_final_top_k: int = 6
     adaptive_max_rewrite_rounds: int = 2
 
+    # ---------- 语义缓存（P2-①：复用现有 Qdrant，缓存「查询 → 自适应检索结果」）----------
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.95  # 余弦相似度命中阈值
+    semantic_cache_ttl_seconds: int = 1800  # 命中结果的有效期，过期视为未命中
+
     # ---------- 切块 ----------
     chunk_size: int = 500
     chunk_overlap: int = 80

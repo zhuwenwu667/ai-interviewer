@@ -73,11 +73,13 @@ async def main(rebuild: bool) -> int:
             )
 
         total = store.count()
+        cleared = store.clear_semantic_cache()  # 知识库已变，语义缓存随之失效
         print("-" * 60)
         print(
             f"摄入完成：resume={totals['resume']} jd={totals['jd']} "
             f"qa={totals['qa']}；集合总点数={total}，Qdrant({settings.qdrant_mode})"
         )
+        print(f"[缓存] 已清空语义缓存 {cleared} 条")
         return 0
     finally:
         await embedder.close()

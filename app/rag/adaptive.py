@@ -17,11 +17,15 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from app.config.settings import Settings
 from app.core.llm import DeepSeekChatClient
 from app.observability.tracer import get_tracer
 from app.rag.retriever import RetrievalResult, Retriever
+
+if TYPE_CHECKING:  # 仅类型标注，避免与 cache 模块形成运行时循环导入
+    from app.rag.cache import SemanticCache
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,16 @@ class AdaptiveResult:
     stopped_reason: str  # "sufficient" | "max_rounds_reached"
     verdicts: list[SufficiencyVerdict] = field(default_factory=list)
 
+    @classmethod
+    def from_dict(cls, data: dict) -> AdaptiveResult:
+        """从 ``dataclasses.asdict`` 产物还原（语义缓存用）。"""
+        return cls(
+            retrieval=RetrievalResult.from_dict(data["retrieval"]),
+            rounds=int(data["rounds"]),
+            stopped_reason=str(data["stopped_reason"]),
+            verdicts=[SufficiencyVerdict(**v) for v in data.get("verdicts", [])],
+        )
+
 
 def _parse_verdict(content: str) -> SufficiencyVerdict | None:
     """解析评估输出。优先 JSON；失败时按 yes/no/是/否 关键词兜底；均失败返回 None。"""
@@ -90,10 +104,24 @@ def _top_rerank_score(result: RetrievalResult) -> float:
 class AdaptiveRetriever:
     """自评 + 重检索封装的检索入口，供出题 / 追问节点调用。"""
 
-    def __init__(self, settings: Settings, retriever: Retriever, llm: DeepSeekChatClient) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        retriever: Retriever,
+        llm: DeepSeekChatClient,
+        *,
+        cache: SemanticCache | None = None,
+    ) -> None:
         self._settings = settings
         self._retriever = retriever
         self._llm = llm
+        self._cache = cache
+
+    def _scope(self, kb_types: list[str] | None, top_k: int | None) -> str:
+        """缓存作用域：区分不同检索范围（kb_types + top_k），避免互相污染。"""
+        kb = ",".join(sorted(kb_types)) if kb_types else "*"
+        final_k = top_k if top_k is not None else self._settings.retrieval_final_top_k
+        return f"{kb}|{final_k}"
 
     async def _evaluate(self, query: str, result: RetrievalResult) -> SufficiencyVerdict:
         """LLM 判定召回充分性；非法输出重试一次，仍非法则保守放行（视为充足）。"""
@@ -120,6 +148,23 @@ class AdaptiveRetriever:
         return SufficiencyVerdict(sufficient=True, reason="评估输出非法，保守放行")
 
     async def retrieve(
+        self,
+        query: str,
+        kb_types: list[str] | None = None,
+        top_k: int | None = None,
+    ) -> AdaptiveResult:
+        """带语义缓存的检索入口：命中即整体跳过改写/召回/精排/自评。"""
+        if self._cache is None:
+            return await self._retrieve_uncached(query, kb_types=kb_types, top_k=top_k)
+        scope = self._scope(kb_types, top_k)
+        cached = await self._cache.get(query, scope)
+        if cached is not None:
+            return cached
+        result = await self._retrieve_uncached(query, kb_types=kb_types, top_k=top_k)
+        await self._cache.put(query, scope, result)
+        return result
+
+    async def _retrieve_uncached(
         self,
         query: str,
         kb_types: list[str] | None = None,
