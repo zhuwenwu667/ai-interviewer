@@ -495,7 +495,10 @@ login→next→answer→history 全链路、未配置 503、错口令 401、未�
 
 **实测**：`uv run pytest -q -m "not integration"` → **191 passed / 1 skipped**（较改动前 +4：列表排序与报告标记、
 复练提升率数学与边界、前端历史回看点开报告、训练页提升率展示）；`ruff check` 全过；`check_eval_gate.py` 退出码 0。
-线上以 `GET /sessions` 返回列表、`GET /train/history` 返回 `retrain_stats` 字段实测确认。
+**线上实测（腾讯云 42.194.242.186）**：`GET /sessions` 返回按创建时间倒序的真实会话列表，`has_report` 标记正确
+（已结束会话说 `true`、进行中 `false`）；训练侧首查无复练 → `retrain_stats{0,0,0.0}`（边界），对原 `poor` 的
+`Q25` 重答一次（**有限 LLM 调用**）真实研判 `good` 后 → `retrain_stats{retrained:1, improved:1, rate:1.0}`，
+同时 `GET /train/mistakes` 该题被移除（`mistakes_count=0`）——**复练提升率与「复练转 good 即出本」均以线上真实数据确认**。
 
 **取舍**：历史记录做在**开始页折叠区**而非新增独立页——两次点击即可回看，且不牺牲首屏折叠线；复练提升率挂在
 现有 `history` 接口的**新字段**而非新接口——数据同源、零额外请求，也避免为「展示一个比例」多开一个端点（过度工程）。

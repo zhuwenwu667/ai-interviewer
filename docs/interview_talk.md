@@ -260,6 +260,8 @@ answer 唯一耗 LLM、挂 §5.8 的 `enforce_quota`；⑤ `train_attempts` 表�
 「历史面试记录」（不占首屏高度），已生成报告的会话带「回看报告」按钮，点击即置 `session_id` 并跳报告页，
 **复用现有报告渲染**（雷达图/维度条/证据/下载），不新写第二套展示。
 **实测**：`tests/test_api.py` 断言空列表/排序/`has_report` 标记/`limit`；`tests/test_frontend.py` 断言历史入口、状态标注与点开回看复用报告。
+**线上实测**：`GET /sessions` 返回到序真实列表、`has_report` 标记正确；`GET /train/history` 首查无复练 → `{0,0,0.0}`，
+把原 `poor` 的 Q25 重答一次真实研判 `good` 后 → `{retrained:1, improved:1, rate:1.0}`，且该题从错题本移除（`mistakes_count=0`）。
 **取舍**：做在开始页折叠区而非新增独立页（两次点击即可回看、不牺牲首屏折叠线）；不为列表新开鉴权体系（与既有会话接口一致，避免过度工程）。
 
 ## 6. 复盘

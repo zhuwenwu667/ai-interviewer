@@ -908,6 +908,15 @@
     列表鉴权与既有会话接口保持一致（单用户演示项目，不新开门禁做过度工程）。
   - **文档回写**：README §5 接口表加 `GET /sessions`、更新 `/train/history` 行、§6.9 增补复练提升率（⑧）、
     新增 §6.11、单测数 187→191；`docs/interview_talk.md` §5.9 增补 ⑨、新增 §5.10、下一步追加 ⑦⑧、单测数同步。
+  - **服务器侧验证（2026-10-18，腾讯云 42.194.242.186，提交 `b2c0627` 经 git bundle 同步重建）**：
+    三容器重建后 api / qdrant / streamlit 均 `healthy`；`curl /sessions` → 非空列表且严格按 `created_at` 倒序
+    （07:36 > 01:19 > 10-17…），`has_report` 标记正确（`7d5c…`/`finished` → `true`，进行中会话 → `false`）；
+    trainer 凭据登录得 113 字符令牌 → `curl /train/history` 返回新字段 `retrain_stats`
+    （首查 `done_count=2`、`quality_counts{poor:1,good:1}` → `retrain_stats{retrained:0,improved:0,rate:0.0}`，
+    **无复练边界线上确认**）；对 `ai_backend_qa_bank.md#Q25`（原 `poor`）**重答一次有限 LLM 调用** → 真实研判
+    `quality=good` + 中文点评 → `curl /train/history` → `retrain_stats{retrained:1,improved:1,improvement_rate:1.0}`
+    （**复练提升率线上确认真实非零值**）、`quality_counts{good:2,poor:1}`；`/train/mistakes` → `mistakes_count=0`
+    （**复练转 good 自动从错题本移除线上确认**）；`/health` → 200、前端 `:8501` → 200。
 
 ## 任务依赖与建议排期
 
