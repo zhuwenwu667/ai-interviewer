@@ -808,12 +808,17 @@
   - **首屏高度压缩（提交 `5de371f`）**：把「报告维度」标签与五维 chips 并为一行、删掉「数据来源」「面试配置」
     两个小标题（`st.radio` 自带「知识库来源」标签、右侧三控件各自带标签，小标题冗余且各占一整行）。
     这两处合计抬升主按钮约 130px，是本次「让 CTA 回到折叠线以上」的主要手段。
-  - **首屏折叠位置实测**（Playwright 驱动本机 Edge，headless，公网页面，提交 `5de371f`）：
-    主按钮 `rect.top` = 529.3、`rect.bottom` = 569.3、宽 820 × 高 40、`disabled=false`；
-    在 **701px** 与 **900px** 两种视口下 `rect.bottom <= innerHeight` 均为 **true**（701px 下余 132px），
-    且 `scrollHeight == innerHeight`（整页无滚动条，页尾诊断也一并落在视口内）；
-    同次测量 `iv-status` ×2、`iv-dot` ×6、`iv-dims-lead` ×1、`iv-hero-dims li` ×5、
-    `stException`/`stAlert` 均为 0。结论：**改造后主按钮已在首屏内，且有充裕余量**。
+  - **首屏折叠位置实测**（Playwright 驱动本机 Edge，headless，公网页面，提交 `5de371f` / `c5e2eb5`）：
+    1280×701 → 主按钮 `rect.top` 529.3 / `bottom` 569.3（余 132px ✅）；1024×844 → 631 ✅；
+    768×844 → 529 ✅；**390×844（手机）→ 851，差 7px 落于折叠线外**（加窄屏媒体查询前为 898）。
+    四个宽度横向溢出均为 0；同次测量 `iv-status` ×2、`iv-dot` ×6、`iv-dims-lead` ×1、
+    `iv-hero-dims li` ×5、`stException`/`stAlert` 均为 0。
+  - **窄屏复核（提交 `c5e2eb5`）**：390px 下表单**堆叠为单列**、768px **仍是两列**——
+    **推翻了此前文档里「<900px 会由 Streamlit 自动堆叠」的说法，已回写更正**。
+    针对手机端主按钮落在折叠线下 54px 的问题，加 `@media (max-width: 480px)` 收紧 Hero 排版
+    （标题 1.5rem、副文案 0.9rem、chips 与内边距收紧），实测抬升 47px 至差 7px、基本贴齐折叠线；
+    **主动停止继续压缩**：更矮的手机（375×667）无论如何排 Hero 都放不下「Hero + Tab + 配置区 + 按钮」，
+    再压只会毁掉首屏观感——手机上需一次小幅滚动属正常可接受，此结论已写进 README §6.10。
   - **验证手段切换记录（curl 断言对 Streamlit 不适用）**：browser_use 工具在本会话连续 4 次返回
     IDE Command timeout 后按建议改用轻量方案，但实测公网首页静态 HTML 仅 6 467 字节且不含任何渲染内容
     （`iv-status` / `iv-dims-lead` / 按钮文本均 absent，只有 `streamlit` 外壳字符串命中）——
