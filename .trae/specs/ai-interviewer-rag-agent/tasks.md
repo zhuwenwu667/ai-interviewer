@@ -730,6 +730,17 @@
   - **文档回写**：README 新增 §6.9、§4 目录补 train/ 与 views_train、§5 接口表加 4 行、§7 加两条取舍、
     单测数 164→178；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
     `.env.example` 补训练模式配置块。
+  - **服务器侧验证（2026-10-18，腾讯云轻量 42.194.242.186，提交 `b13f9db` 经 git bundle + reset 同步）**：
+    `docker compose up -d --build` 重建后三容器（qdrant / api / streamlit）均 `healthy`；宿主机
+    `GET /health` → **200**；真实凭据走通全链路——`POST /train/login` → 200 签发 `trn1.` 令牌；
+    `POST /train/next` → 200 抽中 `ai_backend_qa_bank.md#Q11`（MySQL 索引/B+ 树，响应不含答案要点）；
+    `POST /train/answer` 提交真实作答 → 200，真实 LLM 研判 `quality=good` + 中文点评 + 4 条参考答案要点，
+    `attempt_id=1` 落库；`GET /train/history` → `done_count=1 / total_count=40 / quality_counts={"good":1}`；
+    无令牌访问 `/train/next` → **401**；公网前端 `:8501` → **200**。
+  - **踩坑记录（docker compose .env 插值）**：scrypt 哈希格式 `scrypt$N$r$p$salt$hash` 含 `$`，
+    docker compose 读 `.env` 时把 `$1`/`$8` 当变量展开为空，导致容器内哈希被截断为 `scrypt6384`、
+    登录恒 `TRAIN_AUTH_FAILED`；修复为 `.env` 中写 `$$`（compose 转义为 `$`）后 `printenv` 验证正确。
+    远端 shell 对 heredoc 内 `$$` 会展开为 PID，故含 `$` 的行一律 base64 编码写入。
 - **Progress Notes**（实现要点存档）:
   - **单账号 + 无状态令牌而非注册体系**：训练模式是个人刷题工具，多用户注册/邮箱验证属过度工程；
     凭据走 `.env`（scrypt 哈希，不明文），令牌 HMAC 签名免服务端会话存储，重启不丢登录态。
