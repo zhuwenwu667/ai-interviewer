@@ -563,6 +563,12 @@ login→next→answer→history 全链路、未配置 503、错口令 401、未�
 **实测**：`uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**（+2：`test_candidate_name_required`
 〔缺称呼 422 / 纯空白 400 / 带称呼 201〕、`test_start_requires_candidate_name`〔未填禁用并显性化原因 → 填写后正常开始〕）；
 `ruff check` 全过；`check_eval_gate.py` 退出码 0。
+**线上实测（2026-10-18，`2ff5237` 重建上线后，服务器 42.194.242.186）**：三容器 healthy；`POST /sessions`
+缺 `candidate_name` → **422**；带称呼 → **201** 且响应含 `candidate_name`；`GET /sessions` 全部记录含
+`candidate_name` 字段；`/health` 200、前端 `:8501` 200。
+> 一个如实记录的细节：**纯空白**称呼在 **urlencoded**（前端未上传简历/JD 时 httpx 的默认编码）下会走到路由内
+> `strip` 守卫 → **400 `INVALID_CANDIDATE_NAME`**；而在 **multipart**（带文件上传）下由框架先拦成 422
+> （Starlette 把空白视作缺失）。两条路径都不放行空白，且前端 `name.strip()` 为空时按钮本就禁用。
 
 **取舍**：只把必填收口在 **HTTP 层**，不动仓储模型与 DB 列——历史会话（含 `NULL` 称呼）与内部直调
 （`repo.create_session`）都继续可用，避免为一次产品化改动引发数据迁移；列表「称呼」列而非顶部搜索框——

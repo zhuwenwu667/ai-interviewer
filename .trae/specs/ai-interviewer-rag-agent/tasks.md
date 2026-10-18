@@ -999,8 +999,16 @@
     `check_eval_gate.py` 退出码 0。
   - **文档回写**：README §5 接口表标注 `candidate_name` 必填、新增 §6.13（问题/做法/实测/取舍）、
     §6.5 CI 与 §8 单测数 195→197；`docs/interview_talk.md` 新增 Q17、§5 概览单测数同步为 197 例（含集成 201 例）。
-  - **线上验证**：见下方「线上验证」小节（重建镜像后 `POST /sessions` 缺称呼 → 422；前端开始页未填禁用；
-    历史列表显示称呼）。
+  - **线上验证（2026-10-18，提交 `2ff5237` 经 bundle 同步重建后，服务器 42.194.242.186）**：
+    `docker compose ps` 三容器 healthy；`POST /sessions` 缺 `candidate_name` → **422**（`VALIDATION_ERROR` /
+    `body.candidate_name Field required`）；带称呼 → **201** 且响应含 `candidate_name=线上验证候选人`；
+    `GET /sessions` → 10 条记录**全部含 `candidate_name` 字段**，最新一条即本次创建者；
+    `/health` → 200、前端 `:8501` → 200。
+  - **实测发现（如实记录）**：**multipart** 编码下提交**纯空白**称呼也返回 422（Starlette 的 multipart 解析把空白
+    视作缺失，故前端带文件上传这条路径由框架兜住）；而 **urlencoded**（前端未上传简历/JD 的常见路径，httpx 无
+    `files` 时即 urlencoded）下空白字符串能通过 `min_length=1`，由路由内 `strip` 守卫拦成 **400
+    `INVALID_CANDIDATE_NAME`**（单测 `test_candidate_name_required` 即覆盖此路径）。两条路径都拒绝空白，
+    前端另有 `name.strip()` 空则禁用按钮，故空白称呼实际到不了后端。
 
 ## 任务依赖与建议排期
 
