@@ -27,16 +27,20 @@ import views_start  # noqa: E402
 from api_client import DEFAULT_BASE_URL, ApiClientError, BackendClient  # noqa: E402
 from ui_common import clear_error, render_error_banner  # noqa: E402
 
-PAGE_LABELS = {"start": "开始面试", "train": "刷题训练", "interview": "面试进行中", "report": "评估报告"}
+PAGE_LABELS = {"start": "模拟面试", "train": "刷题训练", "interview": "面试进行中", "report": "评估报告"}
 VALID_VIEWS = tuple(PAGE_LABELS)
 
-# 全局样式：收窄内容宽度，并给 Hero 与诊断卡片定版式。
+# 全局样式：收窄内容宽度，Hero 用左侧竖条定重心，状态徽标与诊断卡片定版式。
 # 只覆盖 .block-container 与稳定的 data-testid 容器，避免依赖易变的内部类名。
 _STYLES = """
 <style>
   .block-container { max-width: 1080px; padding-top: 1.8rem; padding-bottom: 3rem; }
 
-  .iv-hero { padding: 0.35rem 0 1.4rem; border-bottom: 1px solid #EDF2F2; margin-bottom: 1.25rem; }
+  .iv-hero {
+    padding: 0.2rem 0 1.15rem 1.05rem;
+    border-left: 3px solid #0F5F59;
+    margin-bottom: 1.0rem;
+  }
   .iv-hero-badge {
     display: inline-block; font-size: 0.75rem; letter-spacing: 0.02em;
     color: #0F5F59; background: #E6F2F0; border-radius: 999px;
@@ -48,7 +52,7 @@ _STYLES = """
   }
   .iv-hero-sub {
     font-size: 1rem; line-height: 1.7; color: #4A5C60;
-    margin: 0 0 1.1rem; max-width: 44rem;
+    margin: 0 0 1.1rem; max-width: 38rem;
   }
   .iv-hero-dims-label {
     font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
@@ -59,9 +63,23 @@ _STYLES = """
     list-style: none; padding: 0; margin: 0;
   }
   .iv-hero-dims li {
-    font-size: 0.82rem; color: #33474D; background: #F3F6F6;
+    font-size: 0.82rem; color: #33474D; background: transparent;
     border: 1px solid #E1EAE9; border-radius: 8px; padding: 4px 10px;
   }
+
+  /* CTA 旁的一行内联状态：服务与两个模型的配置情况 */
+  .iv-status {
+    display: flex; flex-wrap: wrap; gap: 4px 16px;
+    font-size: 0.8rem; color: #4A5C60; margin: 0.4rem 0 0;
+  }
+  .iv-status span { white-space: nowrap; }
+  .iv-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 5px; vertical-align: middle;
+  }
+  .iv-dot.ok { background: #0F5F59; }
+  .iv-dot.warn { background: #C2771A; }
+  .iv-dot.bad { background: #B3261E; }
 
   div[data-testid="stMetric"] {
     background: #F8FAFA; border: 1px solid #E8EEEE;
@@ -148,7 +166,6 @@ def _confirm_restart() -> None:
 def _render_sidebar() -> None:
     with st.sidebar:
         st.title("AI 模拟面试官")
-        st.caption("简历 / JD 驱动出题 · 每道题都可溯源")
 
         options = ["start", "train"]
         if st.session_state["session_id"]:

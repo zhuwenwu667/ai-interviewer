@@ -225,6 +225,21 @@ def test_start_page_renders_and_starts_interview(stub_backend):
     assert at.chat_input, "未完成的面试应提供回答输入框"
 
 
+def test_start_page_tabs_offer_train_entry(stub_backend):
+    """首页双 Tab：模拟面试 / 刷题训练并列，训练入口不经侧边栏即可直达。"""
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    assert not at.exception
+    assert [t.label for t in at.tabs] == ["模拟面试", "刷题训练"]
+
+    # CTA 旁一行内联状态（服务 + 两个模型），健康时三项均 ok
+    text = "\n".join(m.value for m in at.markdown)
+    assert "服务正常" in text and "DeepSeek 已配置" in text and "SiliconFlow 已配置" in text
+
+    _button(at, "前往刷题训练").click().run()
+    assert not at.exception
+    assert _button(at, "登录并开始刷题"), "首页训练入口应能直达训练页登录表单"
+
+
 def test_sse_error_event_shows_banner_with_code(stub_backend):
     stub_backend["stream"] = _error_stream
     at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()

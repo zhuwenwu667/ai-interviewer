@@ -726,12 +726,12 @@
     面试 ID 不可冒充、题库解析与抽题排除回退、API 全链路（login→next→answer→history）、next 不含要点、
     未配置 503、错口令/无令牌 401、未知题 404、预算熔断 answer 503、登录限速 429、
     **reveal 返回答案要点且零 LLM 调用（handler 触发即失败的 MockTransport）、不落库进度为 0**、仓储层 CRUD；
-    `tests/test_frontend.py` 新增 3 例（登录→作答全链路；显示答案按钮流程；401 回登录态）。
-    `uv run pytest -q -m "not integration"` → **182 passed / 1 skipped**（含集成共 186）；
+    `tests/test_frontend.py` 新增 4 例（登录→作答全链路；显示答案按钮流程；401 回登录态；首页双 Tab 入口）。
+    `uv run pytest -q -m "not integration"` → **183 passed / 1 skipped**（含集成共 187）；
     `ruff check app tests scripts frontend` → All checks passed；
     `uv run python scripts/check_eval_gate.py` → 退出码 0。
   - **文档回写**：README 新增 §6.9、§4 目录补 train/ 与 views_train、§5 接口表加 5 行、§7 加两条取舍、
-    单测数 164→182；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
+    单测数 164→183；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
     `.env.example` 补训练模式配置块。
   - **服务器侧验证（2026-10-18，腾讯云轻量 42.194.242.186，提交 `b13f9db` 经 git bundle + reset 同步）**：
     `docker compose up -d --build` 重建后三容器（qdrant / api / streamlit）均 `healthy`；宿主机
@@ -775,6 +775,45 @@
   - `rule` TR-22.4: `/train/reveal` 返回答案要点且全程零 LLM 调用、不落库（history 进度不变）；
     未知题 404、无令牌 401；前端「显示答案」后可继续作答或直接下一题，进度不前进。
 
+## Task 23: 首页信息流重排与功能入口显性化（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **实现**：
+    - `frontend/views_start.py`（重写版式）：渲染序改为「Hero → 服务状态（内联）→ 双 Tab 配置区 → 页尾诊断折叠」；
+      `_fetch_health` 只取数 + 设 `server_ready`/`server_keys_ready`（不可达才 `st.error` 前置）；
+      `_status_html` 输出 CTA 旁一行内联徽标（服务正常/降级 + DeepSeek/SiliconFlow 已配置与否）；
+      `_render_cta_hint` 把禁用原因显性化（服务未就绪 / Key 未配置 / 方向未填）；
+      表单拆两列 `[5,4]`——左「数据来源」（radio + 上传 + 类型说明）／右「面试配置」（方向/自定义/题数/称呼）；
+      `st.tabs(["模拟面试","刷题训练"])`，训练 Tab 内「前往刷题训练」一键 `requested_page="train"`。
+    - `frontend/app.py`：`_STYLES` 新增 `.iv-status`/`.iv-dot.ok|warn` 与 Hero 左竖条（`border-left: 3px solid
+      #0F5F59`）；Hero 去掉底部横向分割线，副文案限宽 38rem，维度 chips 由实底改描边；
+      `PAGE_LABELS["start"]` 由「开始面试」改「模拟面试」与 Tab 对齐；侧边栏去掉与 Hero 重复的标语。
+  - **单测**：`tests/test_frontend.py` 新增 `test_start_page_tabs_offer_train_entry`（断言
+    `[t.label for t in at.tabs] == ["模拟面试","刷题训练"]`、内联状态三项 ok、「前往刷题训练」直达训练页登录表单）；
+    既有首页用例（Hero 文案 / 五维预告 / 来源·方向·题数控件 / 服务诊断三项 metric）全部保持通过。
+    `uv run pytest -q -m "not integration"` → **183 passed / 1 skipped**；
+    `ruff check app tests scripts frontend` → All checks passed；`check_eval_gate.py` → 退出码 0。
+  - **文档回写**：README 新增 §6.10（问题/做法 5 点/实测/取舍）、§2 前端行改「四页式」、单测数 182→183；
+    `docs/interview_talk.md` 单测数同步 183（含集成 187）。
+- **Progress Notes**:
+  - 版式改动的第一原则来自既有注释：「诊断属部署信息，**仅真的不可用时才前置提示**」——健康态下运维信息
+    不该占据首屏重心，故把 expander 降级成一行内联徽标（`● 服务正常 ｜ DeepSeek 已配置`）。
+  - 选 **Tab 而非双卡**：双卡曝光更足但首屏变长需滚动；Tab 首屏最紧凑且承接导航语义，训练模式仍双入口可达。
+    代价与收益已如实写进 §6.10 取舍段（日后要主推训练模式，改双卡成本很低）。
+  - 禁用按钮原先只有灰态、不解释原因，属可用性缺陷而非样式问题；`_render_cta_hint` 按三种原因就近提示。
+- **Priority**: medium
+- **Depends On**: Task 22
+- **Description**:
+  - 把首页从「Hero → 诊断 → 来源 → 上传 → 三列表单 → 按钮」的线性堆叠，重排为「Hero → 状态 → 双 Tab →
+    页尾诊断」；训练模式从侧边栏提到首页一等入口；禁用原因显性化；表单按语义分两列。
+- **Acceptance Criteria Addressed**: AC-8
+- **Test Requirements**:
+  - `rule` TR-23.1: 首页渲染出 `["模拟面试","刷题训练"]` 两个 Tab；健康时 CTA 旁内联状态三项为 ok；
+    「前往刷题训练」可直达训练页登录表单（不经侧边栏）。
+  - `rule` TR-23.2: 既有首页契约不回退——Hero 标题与五维预告、知识库来源 radio、岗位方向/题数控件、
+    服务诊断三项指标（服务状态/DeepSeek/SiliconFlow）仍可从 `/health` 契约读到。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -796,3 +835,4 @@
 | D16 | Task 20（作品集增强 P2-②：上下文预算压缩 token 与成本） |
 | D17 | Task 21（作品集增强 P2-③：公网限速与成本熔断防额度滥用） |
 | D18 | Task 22（训练模式：单账号刷题练习与进度追踪） |
+| D19 | Task 23（首页信息流重排与功能入口显性化） |

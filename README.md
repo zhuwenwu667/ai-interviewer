@@ -59,7 +59,7 @@ START ─┬─ greeted? ── greeting → ask_question → END
 | 关键词检索 | rank-bm25 + jieba | 中文分词，heading + text 参与打分 |
 | 融合 | RRF（k=60） | 免训练、解决向量分与 BM25 分尺度不可比 |
 | 存储 | SQLite | 会话、消息、状态快照、报告 |
-| 前端 | Streamlit | 三页式（开始 / 面试 / 报告） |
+| 前端 | Streamlit | 四页式（模拟面试 / 刷题训练 / 面试进行中 / 报告） |
 | 评测 | RAGAS 0.4 | LLM-as-judge，固定 judge 与阈值 |
 | 可观测 | Langfuse 或 本地 JSONL | 同一 `SpanRecord` 结构，未配 key 自动降级 |
 | 部署 | Docker Compose | 三容器（qdrant / api / streamlit），非 root，健康检查 |
@@ -292,7 +292,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（182 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（183 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -415,12 +415,33 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 **实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 15 例覆盖
 哈希往返/篡改/过期、题库解析、抽题排除、login→next→answer→history 全链路、未配置 503、
 错口令 401、未知题 404、**预算熔断时 answer 503**、登录限速 429、reveal 零 LLM 调用且不落库；
-`tests/test_frontend.py` 新增 3 例（登录→作答→研判+要点展示、显示答案按钮、401 自动回登录态）。
-`uv run pytest -q -m "not integration"` → **182 passed / 1 skipped**；`ruff check` 全过；
+`tests/test_frontend.py` 新增 4 例（登录→作答→研判+要点展示、显示答案按钮、401 自动回登录态、首页双 Tab 入口）。
+`uv run pytest -q -m "not integration"` → **183 passed / 1 skipped**；`ruff check` 全过；
 `check_eval_gate.py` 退出码 0。
 
 > ⚠️ 公网当前为明文 HTTP：训练密码会明文传输，**务必独立设置、严禁与任何其他场景复用**
 > （`.env.example` 中有同样提醒）；令牌默认 1 小时过期，前端只存浏览器会话内存。
+
+### 6.10 首页信息流与功能入口重排（2026-10-18）
+
+**问题**：首屏渲染顺序是 Hero → 诊断（可能插入告警）→ 来源选择 → 上传器 → 三列表单 → 才轮到「开始」，
+唯一的行动按钮沉在折叠线下；禁用按钮只有灰态、不说原因；「其他（自定义）」方向输入框挤在 `[3,2,2]`
+的第 1 窄列里；刚上线的刷题训练只在侧边栏导航，首页零曝光。
+
+**做法**：① **诊断降级**——健康时只在 CTA 旁留一行内联状态徽标（服务 + 两个模型配置），明细收进页尾
+折叠区，**仅真的不可用时才前置报错**；② **表单按语义分两列**（左「数据来源」／右「面试配置」），
+自定义方向输入框获得整列宽度；③ **禁用原因显性化**（服务未就绪 / Key 未配置 / 方向未填，三选一提示
+落在按钮下方）；④ **功能排列**——Hero 下并列「模拟面试 / 刷题训练」两个 Tab，训练模式成为首页一等
+入口（不再依赖侧边栏），侧边栏同时去掉与 Hero 重复的标语；⑤ Hero 用左侧 `#0F5F59` 竖条定重心、
+维度 chips 由实底改描边、去掉底部横向分割线，降低「首页被切成一叠卡片」的观感。
+
+**实测**：`tests/test_frontend.py` 新增 1 例断言 Tab 标签为 `["模拟面试", "刷题训练"]`、内联状态三项
+均 ok、「前往刷题训练」可直达训练页登录表单；离线全套 **183 passed / 1 skipped**，既有首页用例
+（Hero 文案、五维预告、来源/方向/题数控件、服务诊断指标）全部保持通过。
+
+**取舍**：**Tab 而非双卡**——双卡曝光更足但首屏变长需滚动；Tab 首屏最紧凑，且天然承接导航语义：
+训练模式仍经 Tab + 侧边栏双入口可达，曝光损失有限（日后若要把它当主推卖点，改双卡成本很低）。
+两列布局与 Tab 在窄屏（<900px）由 Streamlit 自动堆叠为单列。
 
 ## 7. 关键设计取舍
 
