@@ -1030,6 +1030,28 @@
     `ruff check` 全过、`uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**、`check_eval_gate.py` 退出码 0。
   - **线上验证**：重建后容器内前端源码含新文案（`docker compose exec streamlit grep`），`/docs` 标题生效。
 
+## Task 29: 缺陷修复——首屏元素被不透明页头遮挡（Hero 徽章上半截看不见）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **现象**：用户反馈新版 Hero 徽章「显示不全」——截图中汉字**上半截缺失**，看起来像被横切一刀。
+  - **根因（浏览器实测，非推测）**：Streamlit 页头 `header[data-testid="stHeader"]` 为**不透明浮层**：
+    高 **60px**、`position: absolute`、`background-color: rgb(255,255,255)`、`z-index: 999990`；
+    而 `.iv-hero-badge` 实测 `top≈49.66px`、`height≈25.20px`、`bottom≈74.85px`——
+    **徽章顶部 10.34px 落在页头覆盖范围内**，被纯白页头压掉，故汉字上半截不可见。
+  - **重要澄清**：该遮挡**在改文案之前就存在**（旧徽章文案短、无人盯着看才未被发现），
+    并非新文案本身导致；新文案只是让问题显性化。
+  - **修复**：`frontend/app.py` 的 `_STYLES` 中把页头置为透明——
+    `header[data-testid="stHeader"] { background: transparent !important; box-shadow: none !important; }`。
+    选它而非「加大 `padding-top` 下推内容」：**零布局位移**，不会把主按钮顶出 701px 视口折叠线
+    （Task 23 的约束）；也没有用 `display: none`——那会连带删掉侧边栏折叠按钮，导致移动端侧边栏收起后无法再展开。
+  - **线上复验（42.194.242.186:8501，硬刷新后浏览器实测）**：
+    页头 computed `background-color` 由 `rgb(255,255,255)` 变为 **`rgba(0, 0, 0, 0)`**（透明）；
+    徽章特写截图中汉字**顶部笔画完整可见**，遮挡已消除；
+    主按钮 `top≈528.39px` **与修复前一致**（确认零位移）；侧边栏说明小字 `scrollWidth==clientWidth==260px` 无截断。
+  - **离线质量门**：`ruff check` 全过、`uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**。
+  - **提交/部署**：`e79bf89`，已 bundle 同步服务器并 `docker compose up -d --build`（api Healthy、streamlit Started）。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -1057,3 +1079,4 @@
 | D22 | Task 26（作品集增强：效果看板——评测数字进产品） |
 | D23 | Task 27（作品集增强：称呼必填——历史记录可辨识到人） |
 | D24 | Task 28（对外展示名与文案改版：「你面了吗」+ 显性岗位定位） |
+| D25 | Task 29（缺陷修复：首屏元素被不透明页头遮挡） |
