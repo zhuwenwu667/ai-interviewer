@@ -148,8 +148,10 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
                 max_chars=60,
                 placeholder="例如：数据平台 / 推荐算法",
             )
-        num_questions = st.slider("题目数量", 1, 10, value=3)
-        candidate_name = st.text_input("你的称呼（可选）", value="", max_chars=40)
+        # 题数与称呼并排，收窄首屏高度（让主按钮尽量留在折叠线以上）
+        num_col, name_col = st.columns(2)
+        num_questions = num_col.slider("题目数量", 1, 10, value=3)
+        candidate_name = name_col.text_input("你的称呼（可选）", value="", max_chars=40)
 
     disabled = not st.session_state.get("server_ready", False) or not track.strip()
     if st.button(
