@@ -1,8 +1,10 @@
-"""刷题训练页：登录 → 抽题 → 作答 → 单轮研判 + 答案要点 → 进度与历史。
+"""刷题训练页：登录 → 抽题 → 作答 → 单轮研判 + 答案要点 → 进度 / 错题本 / 历史。
 
 与面试模式的差异（产品语义）：
 - 无简历/JD、无追问、无报告——一题一评的短闭环，专注「题库八股」刻意练习；
-- 题目从服务端题库抽取，作答提交后才展示参考答案要点（next 响应不含要点）；
+- 题目从服务端题库抽取，错题优先（poor > partial > 未作答 > good，见后端 draw）；
+- 作答提交后才展示参考答案要点（next 响应不含要点）；答不出可「显示答案」（不计进度）；
+- 错题本汇总非 good 的题（题干 / 我的作答 / 点评 / 答案要点），可一键重练；
 - 令牌只存 session_state（浏览器会话内存），401 时自动回落到登录态。
 """
 
@@ -44,10 +46,11 @@ def _handle_error(exc: ApiClientError) -> None:
         set_error(str(exc), exc.code)
 
 
-def _draw_next(client: BackendClient) -> None:
+def _draw_next(client: BackendClient, avoid_question_id: str | None = None) -> None:
+    """抽下一题。``avoid_question_id`` 传当前题，避免「下一题」连出同一道题。"""
     try:
         with st.spinner("正在抽题…"):
-            body = client.train_next()
+            body = client.train_next(avoid_question_id)
     except ApiClientError as exc:
         _handle_error(exc)
         return
@@ -139,7 +142,7 @@ def _render_question(client: BackendClient) -> None:
                 for point in revealed:
                     st.markdown(f"- {point}")
             if st.button("下一题 →", type="primary"):
-                _draw_next(client)
+                _draw_next(client, question["question_id"])
                 st.rerun()
         return
 
@@ -153,7 +156,7 @@ def _render_question(client: BackendClient) -> None:
             for point in points:
                 st.markdown(f"- {point}")
     if st.button("下一题 →", type="primary"):
-        _draw_next(client)
+        _draw_next(client, question["question_id"])
         st.rerun()
 
 
@@ -179,6 +182,46 @@ def _render_history(client: BackendClient) -> None:
             st.markdown(f"- {badge} **{item['question']}**  \n  你的作答：{item['answer'][:80]}")
 
 
+def _retrain(item: dict) -> None:
+    """一键重练：把错题本里的题放回作答区（清空上一轮研判与已看答案）。"""
+    st.session_state["train_question"] = {
+        "question_id": item["question_id"],
+        "question": item["question"],
+        "tags": item.get("tags") or [],
+        "source": item["source"],
+    }
+    st.session_state["train_result"] = None
+    st.session_state["train_revealed"] = None
+    st.rerun()
+
+
+def _render_mistakes(client: BackendClient) -> None:
+    with st.expander("错题本", expanded=False):
+        try:
+            data = client.train_mistakes()
+        except ApiClientError as exc:
+            _handle_error(exc)
+            return
+        mistakes = data.get("mistakes") or []
+        if not mistakes:
+            st.caption("暂无错题——非 good 的题会自动收进这里。")
+            return
+        poor = sum(1 for m in mistakes if m.get("quality") == "poor")
+        st.caption(f"共 {len(mistakes)} 道待巩固（其中 🔴 需要加强 {poor} 道，🔴 排在最前）")
+        for item in mistakes:
+            badge = _QUALITY_BADGES.get(item["quality"], item["quality"])
+            st.markdown(f"**{badge}｜{item['question']}**")
+            st.caption(f"你的作答：{item['answer']}")
+            st.info(item["feedback"] or "（无点评）")
+            points = item.get("reference_points") or []
+            if points:
+                with st.expander("参考答案要点", expanded=False):
+                    for point in points:
+                        st.markdown(f"- {point}")
+            if st.button("一键重练", key=f"train_retrain_{item['question_id']}"):
+                _retrain(item)
+
+
 def render(client: BackendClient) -> None:
     _init_state()
     if not st.session_state["train_token"]:
@@ -192,6 +235,7 @@ def render(client: BackendClient) -> None:
             return  # 抽题失败（错误已上屏）
     _render_progress()
     _render_question(client)
+    _render_mistakes(client)
     _render_history(client)
 
     if st.button("退出训练登录"):

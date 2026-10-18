@@ -703,7 +703,7 @@
       payload 含 `scope="train"` + `exp`，与面试 session_id 零命名空间重叠）。
     - `app/train/questions.py`（新建）：解析题库 Markdown（`## Q01: 题干` + `- tags:` + `- 答案要点：`），
       `question_id = <文件名>#<Q编号>`；`draw(exclude_ids)` 优先排除已答、全答完回退全量随机
-      （`random.SystemRandom`）；模块级缓存单例。
+      （`random.SystemRandom`）；模块级缓存单例。（**注**：`draw` 的策略后由 Task 24 改为「错题优先」，见下。）
     - `app/api/train.py`（新建）：`POST /train/login`（专用登录限速防爆破；未配置三要素 → 503
       `TRAIN_NOT_CONFIGURED`；错凭据 → 401 `TRAIN_AUTH_FAILED`）、`POST /train/next`
       （鉴权 + `check_rate_only` 防抓题、不查熔断，响应**不含答案要点**）、`POST /train/answer`
@@ -713,7 +713,7 @@
     - `app/api/quota.py`：`QuotaManager` 新增 `check_rate_only(client_key)`（只查每 IP 限速不查成本熔断）。
     - `app/storage/db.py`：新增 `train_attempts` 表（attempt_id/username/question_id/source/question/
       answer/quality/feedback/created_at）+ `add_train_attempt` / `list_train_attempts` /
-      `list_train_done_question_ids`。
+      `list_train_done_question_ids`。（**注**：后者后由 Task 24 替换为 `list_train_latest_attempts`。）
     - `app/config/settings.py`：新增 `train_username` / `train_password_hash` / `train_token_secret` /
       `train_token_ttl_seconds=3600` / `train_login_rate_per_minute=10` / `train_qa_dir`；
       `.env.example` 补配置块与生成命令、明文 HTTP 警告。
@@ -846,6 +846,34 @@
   - `rule` TR-23.2: 既有首页契约不回退——Hero 标题与五维预告、知识库来源 radio、岗位方向/题数控件、
     服务诊断三项指标（服务状态/DeepSeek/SiliconFlow）仍可从 `/health` 契约读到。
 
+## Task 24: 训练模式加固——错题优先抽题与错题本（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **背景**：原抽题为「答过即永久排除」，导致 partial/poor 的题练一次后再不出现，与刻意练习目的相悖。
+  - **实现**：
+    - `app/storage/db.py`：删除 `list_train_done_question_ids`，新增 `list_train_latest_attempts(username)`——
+      每题只取 `MAX(attempt_id)` 一条（最近一次作答），一条 SQL 同时供「错题优先抽题 / 错题本 / 已练题数」。
+    - `app/train/questions.py`：`draw(states, avoid_id)` 按 `poor(0) > partial(1) > 未作答(2) > good(3)` 定序，
+      同级取 `created_at` 最早（最久未练）；先 `shuffle` 再稳定排序使未作答档内随机；`avoid_id` 命中最高优先题时
+      顺延，仅剩一题时仍返回它。
+    - `app/api/train.py`：`POST /train/next` 新增可选体 `TrainNextRequest(avoid_question_id)`，抽题前把
+      `latest_attempts` 折叠为 `{qid: (quality, created_at)}` 传入 `draw`，`done_count=len(states)`；
+      新增 `GET /train/mistakes`（鉴权 + `check_rate_only`，零 LLM）——非 good 的题 poor 在前，逐条附
+      题干 / tags / source / 我的作答 / 点评 / 题库答案要点（题库已无该题时回退用落库字段）。
+    - `app/api/schemas.py`：新增 `TrainNextRequest` / `TrainMistakeItem` / `TrainMistakesResponse`。
+    - 前端：`api_client.train_next(avoid_question_id)`（空则不发体）、`train_mistakes()`；
+      `views_train.py`「下一题」传当前题 id 作 avoid；新增「错题本」折叠区（徽标 + 题干 + 我的作答 + 点评 +
+      答案要点）与**一键重练**（把该题放回答作区、清空上一轮研判）。
+  - **单测**：`tests/test_train.py` 18 例（新增 draw 优先级 / 同级最久未练 / avoid 顺延、next 复练可再抽到 + avoid
+    顺延、mistakes 只收非 good / poor 在前 / 复练转 good 移除 / 需令牌；仓储层改验 `list_train_latest_attempts`）；
+    `tests/test_frontend.py` 新增「错题本一键重练」并扩展作答流程断言 `last_avoid=="bank.md#Q01"`。
+    `uv run pytest -q -m "not integration"` → **187 passed / 1 skipped**；`ruff check` 全过；门禁退出码 0。
+  - **关键取舍**：错题**优先队列**而非 SM-2 间隔重复——40 题单账号下引入记忆曲线调度属过度工程，
+    「最近一次质量 + 最久未练 + avoid 防连出」已达同样效果且零 LLM 成本。
+  - **文档回写**：README §5 接口表更新 next 并加 mistakes 行、§6.9 增补 A1/A3、单测数 183→187；
+    `docs/interview_talk.md` §5.9 增补 ⑦⑧ 与取舍、单测数同步。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -868,3 +896,4 @@
 | D17 | Task 21（作品集增强 P2-③：公网限速与成本熔断防额度滥用） |
 | D18 | Task 22（训练模式：单账号刷题练习与进度追踪） |
 | D19 | Task 23（首页信息流重排与功能入口显性化） |
+| D20 | Task 24（作品集增强：训练模式加固——错题优先抽题与错题本） |

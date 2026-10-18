@@ -206,9 +206,13 @@ class BackendClient:
             "POST", "/train/login", json={"username": username, "password": password}
         )
 
-    def train_next(self) -> dict:
-        """POST /train/next → {question: {question_id, question, tags, source}, done_count, total_count}。"""
-        return self._request_json("POST", "/train/next")
+    def train_next(self, avoid_question_id: str | None = None) -> dict:
+        """POST /train/next → {question: {question_id, question, tags, source}, done_count, total_count}。
+
+        ``avoid_question_id`` 传当前题 id，避免「下一题」连出同一道题（错题优先时的轮转）。
+        """
+        payload = {"avoid_question_id": avoid_question_id} if avoid_question_id else None
+        return self._request_json("POST", "/train/next", json=payload)
 
     def train_answer(self, question_id: str, answer: str) -> dict:
         """POST /train/answer → {attempt_id, quality, feedback, reference_points}。"""
@@ -223,3 +227,7 @@ class BackendClient:
     def train_history(self) -> dict:
         """GET /train/history → {attempts, done_count, total_count, quality_counts}。"""
         return self._request_json("GET", "/train/history")
+
+    def train_mistakes(self) -> dict:
+        """GET /train/mistakes → {mistakes: [{...题干/我的作答/点评/答案要点}], total_count}。"""
+        return self._request_json("GET", "/train/mistakes")

@@ -124,10 +124,11 @@ deploy/          deploy.sh（Linux 一键部署）
 | `GET` | `/sessions/{id}` | 会话详情 + 消息列表 |
 | `GET` | `/sessions/{id}/report` | 获取报告；未生成返回 404 `REPORT_NOT_FOUND` |
 | `POST` | `/train/login` | 训练模式登录（单账号，scrypt 校验）；返回短期 Bearer 令牌（`trn1.` 前缀） |
-| `POST` | `/train/next` | 抽一道训练题（排除该用户已答过的；响应**不含答案要点**）；需令牌 |
+| `POST` | `/train/next` | 抽一道训练题（**错题优先**：poor > partial > 未作答 > good；可带 `avoid_question_id` 避免连出同题；响应**不含答案要点**）；需令牌 |
 | `POST` | `/train/answer` | 提交作答 → 与面试同口径研判（good/partial/poor）+ 参考答案要点；需令牌，挂配额门禁 |
 | `POST` | `/train/reveal` | 答不出来直接看答案要点（**不调 LLM、不落库**，看答案不计入已练进度）；需令牌，每 IP 限速 |
 | `GET` | `/train/history` | 最近作答记录 + 进度统计（已练题数 / 题库总数 / 质量分布）；需令牌 |
+| `GET` | `/train/mistakes` | 错题本：最近一次研判非 good 的题（poor 在前）+ 我的作答 / 点评 / 答案要点；需令牌，每 IP 限速 |
 
 **SSE 事件**：`stage`（阶段推进，含轮次）、`token`（面试官文本增量）、`done`（本轮结束，`error` 时标注）、`error`（中文可读错误码，不断开连接）。
 
@@ -292,7 +293,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（183 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（187 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -405,18 +406,27 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
    `answer` 接口当成「免费 LLM 代理」评任意文本（题目只从服务端题库取）。
 3. **评价与面试同源**：研判 prompt 与解析抽取为 `app/agent/assess.py` 唯一事实源，面试状态机与
    训练接口共用，「同一份回答在两种模式下评价口径一致」有结构性保证（防日后两份 prompt 漂移）。
-4. **滥用防护分层**：login 专用限速（默认 10 次/分/IP，防爆破）→ next/reveal 每 IP 限速（防题库抓取，
-   不查成本熔断以免误伤）→ answer 是**唯一耗 LLM** 的接口，挂 §6.8 的 `enforce_quota`（熔断 + 限速）。
+4. **滥用防护分层**：login 专用限速（默认 10 次/分/IP，防爆破）→ next/reveal/mistakes 每 IP 限速（防题库与
+   答案要点抓取，不查成本熔断以免误伤）→ answer 是**唯一耗 LLM** 的接口，挂 §6.8 的 `enforce_quota`（熔断 + 限速）。
    答不出来可点「显示答案」走 `/train/reveal`：**不调 LLM、不落库**——看答案 ≠ 练过，该题不计入进度，
-   之后仍会被抽到（间隔重复）；看完可继续作答也可直接下一题。
+   之后仍会被抽到。
 5. **进度追踪**：`train_attempts` 表落库每次作答（题目/答案/quality/feedback），前端展示
    「已练 X/总 Y + 覆盖率进度条 + good/partial/poor 分布 + 最近作答记录」。
+6. **错题优先抽题（A1）**：抽题不再「答过即永久排除」，改为按每题**最近一次作答**定序——
+   `poor > partial > 未作答 > good`，同级取最久未练的题；因此答错/半对的题会反复出现直到掌握。
+   请求可带 `avoid_question_id`（前端「下一题」自动带上当前题 id）避免连出同一道题；
+   「看过答案但未作答」的题仍算未作答，与 reveal 不落库的语义一致。零 LLM、零额外成本。
+7. **错题本（A3）**：`GET /train/mistakes` 汇总最近一次研判非 good 的题（poor 排在前），每条含
+   题干 / 我的作答 / 研判点评 / 题库答案要点，前端「错题本」区块可**一键重练**（把该题放回答作区）
+   或就地展开答案要点；复练转 good 后自动从错题本移除。
 
-**实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 15 例覆盖
-哈希往返/篡改/过期、题库解析、抽题排除、login→next→answer→history 全链路、未配置 503、
-错口令 401、未知题 404、**预算熔断时 answer 503**、登录限速 429、reveal 零 LLM 调用且不落库；
-`tests/test_frontend.py` 新增 4 例（登录→作答→研判+要点展示、显示答案按钮、401 自动回登录态、首页双 Tab 入口）。
-`uv run pytest -q -m "not integration"` → **183 passed / 1 skipped**；`ruff check` 全过；
+**实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 18 例覆盖
+哈希往返/篡改/过期、题库解析、**错题优先定序（poor>partial>未作答>good、同级最久未练、avoid 顺延）**、
+login→next→answer→history 全链路、未配置 503、错口令 401、未知题 404、**预算熔断时 answer 503**、
+登录限速 429、reveal 零 LLM 调用且不落库、**mistakes 只收非 good / poor 在前 / 附答案要点 / 复练转 good 移除**；
+`tests/test_frontend.py` 5 例（登录→作答→研判+要点、显示答案按钮、「下一题」携带 avoid、错题本一键重练、
+401 自动回登录态）。
+`uv run pytest -q -m "not integration"` → **187 passed / 1 skipped**；`ruff check` 全过；
 `check_eval_gate.py` 退出码 0。
 
 > ⚠️ 公网当前为明文 HTTP：训练密码会明文传输，**务必独立设置、严禁与任何其他场景复用**

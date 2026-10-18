@@ -289,11 +289,29 @@ class SessionRepository:
             for row in rows
         ]
 
-    def list_train_done_question_ids(self, username: str) -> set[str]:
-        """该用户已作答过的不同 question_id（抽题排除用）。"""
+    def list_train_latest_attempts(self, username: str) -> list[TrainAttemptRecord]:
+        """每题最近一次作答（每题仅一条，attempt_id 最大者），按时间倒序。
+
+        错题优先抽题与错题本的数据源：一道题的真实质量由其最近一次作答决定
+        （poor 优先复练、复练转 good 后即从错题本移除）；题数即「已练习题数」。
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT DISTINCT question_id FROM train_attempts WHERE username = ?",
-                (username,),
+                "SELECT * FROM train_attempts WHERE username = ? AND attempt_id IN ("
+                "  SELECT MAX(attempt_id) FROM train_attempts"
+                "  WHERE username = ? GROUP BY question_id"
+                ") ORDER BY attempt_id DESC",
+                (username, username),
             ).fetchall()
-        return {row["question_id"] for row in rows}
+        return [
+            TrainAttemptRecord(
+                attempt_id=row["attempt_id"],
+                question_id=row["question_id"],
+                question=row["question"],
+                answer=row["answer"],
+                quality=row["quality"],
+                feedback=row["feedback"],
+                created_at=_parse(row["created_at"]),
+            )
+            for row in rows
+        ]

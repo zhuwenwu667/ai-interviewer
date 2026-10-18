@@ -1,17 +1,19 @@
 """训练模式测试（Task 22，离线确定性）。
 
 - 认证：scrypt 哈希往返 / 错密码 / 非法格式；令牌签发 / 校验 / 过期 / 篡改 / 错密钥；
-- 题库：qa Markdown 解析（题干 / tags / 答案要点 / 稳定 question_id）、抽题排除已答、
-  全部答完回退全量随机；
+- 题库：qa Markdown 解析（题干 / tags / 答案要点 / 稳定 question_id）、错题优先定序
+  （poor > partial > 未作答 > good，同级最久未练优先）、avoid_id 避免连出同题；
 - API：login → next → answer → history 全链路（mock LLM 与面试同口径研判）；
   未配置凭据 503、错密码 401、无令牌 401、未知题目 404、answer 挂成本熔断 503、
-  next 响应绝不泄露答案要点、next 排除已答题；
-  reveal 返回答案要点且零 LLM 调用、不落库（进度不前进）、未知题 404、无令牌 401。
+  next 响应绝不泄露答案要点、answer 后避免连出同题；
+  reveal 返回答案要点且零 LLM 调用、不落库（进度不前进）、未知题 404、无令牌 401；
+  mistakes 只收非 good 的题、poor 在前、附答案要点、零 LLM、需令牌。
 """
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -194,18 +196,37 @@ def test_question_bank_parses_qa_markdown(tmp_path):
     assert q1.source == "test_bank.md"
 
 
-def test_question_bank_draw_excludes_done_and_falls_back(tmp_path):
+def test_question_bank_draw_prioritizes_weak_questions(tmp_path):
+    """错题优先：poor > partial > 未作答 > good；同级最久未练优先；avoid 避免连出同题。"""
     bank = QuestionBank.load(_qa_dir(tmp_path))
-    assert bank.draw(set()) is not None  # 非空可抽
-    # 排除两题后只能抽到第三题
-    excluded = {"test_bank.md#Q01", "test_bank.md#Q02"}
+    q1, q2, q3 = "test_bank.md#Q01", "test_bank.md#Q02", "test_bank.md#Q03"
+    t0 = datetime(2026, 10, 1, tzinfo=UTC)
+
+    # 全未作答：三题都可能被抽到（未作答档内随机）
+    drawn = {bank.draw().question_id for _ in range(60)}
+    assert drawn == {q1, q2, q3}
+
+    # poor 优先于 partial / good / 未作答
+    states = {q1: ("good", t0), q2: ("partial", t0), q3: ("poor", t0)}
+    assert bank.draw(states).question_id == q3
+
+    # 同级（poor）取最久未练：Q02 作答更早 → 优先
+    states_old = {q1: ("poor", t0 + timedelta(days=1)), q2: ("poor", t0), q3: ("good", t0)}
+    assert bank.draw(states_old).question_id == q2
+
+    # 未作答优先于 good（已掌握最后复练）
+    states_good = {q1: ("good", t0), q2: ("good", t0)}
     for _ in range(10):
-        assert bank.draw(excluded).question_id == "test_bank.md#Q03"
-    # 全部答完 → 回退全量随机（仍能出题）
-    all_three = excluded | {"test_bank.md#Q03"}
-    for _ in range(10):
-        assert bank.draw(all_three).question_id in all_three
-    assert QuestionBank([]).draw(set()) is None
+        assert bank.draw(states_good).question_id == q3
+
+    # avoid：最高优先的题恰为上一题时顺延
+    assert bank.draw(states, avoid_id=q3).question_id == q2
+    # 只有一道题时 avoid 无法顺延，仍返回它
+    only = bank.get(q1)
+    assert only is not None
+    single = QuestionBank([only])
+    assert single.draw(avoid_id=q1) is not None
+    assert QuestionBank([]).draw() is None
 
 
 def test_get_question_bank_cached_by_dir(tmp_path):
@@ -265,11 +286,15 @@ def test_train_full_chain_login_next_answer_history(tmp_path):
     assert attempt["question_id"] == view["question_id"]
     assert attempt["answer"] == "GIL 是全局锁。"
 
-    # next 排除已答题
-    for _ in range(5):
-        again = client.post("/train/next", headers=_auth(token)).json()
-        assert again["question"]["question_id"] != view["question_id"]
-        assert again["done_count"] == 1
+    # 错题优先：刚答过的 partial 题仍会被再次抽到（复练）；带 avoid 时顺延到未答题
+    again = client.post("/train/next", headers=_auth(token)).json()
+    assert again["question"]["question_id"] == view["question_id"]
+    assert again["done_count"] == 1
+    avoided = client.post(
+        "/train/next", headers=_auth(token), json={"avoid_question_id": view["question_id"]}
+    ).json()
+    assert avoided["question"]["question_id"] != view["question_id"]
+    assert avoided["done_count"] == 1
 
 
 def test_train_not_configured_503(tmp_path):
@@ -366,6 +391,87 @@ def test_train_reveal_requires_token_401(tmp_path):
     assert resp.json()["error"]["code"] == "TRAIN_UNAUTHORIZED"
 
 
+# ---------------------------------------------------------------------------
+# mistakes：错题本（非 good 的题 + 我的作答 / 点评 / 答案要点）
+# ---------------------------------------------------------------------------
+def test_train_mistakes_collects_non_good_with_points(tmp_path):
+    """答两题（poor / good）：错题本只收 poor，附我的作答 / 点评 / 题库答案要点；零 LLM。"""
+    qa = _qa_dir(tmp_path)
+    settings = _settings(qa)
+    llm = _llm(settings, [_assess_json("poor", "只说了一半"), _assess_json("good", "答得完整")])
+    client = _client(_container(settings, llm, SessionRepository(tmp_path / "t.db")))
+    token = _login(client)
+
+    client.post(
+        "/train/answer", headers=_auth(token),
+        json={"question_id": "test_bank.md#Q01", "answer": "全局锁。"},
+    )
+    client.post(
+        "/train/answer", headers=_auth(token),
+        json={"question_id": "test_bank.md#Q02", "answer": "深拷贝递归复制。"},
+    )
+
+    resp = client.get("/train/mistakes", headers=_auth(token))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_count"] == 3
+    assert [m["question_id"] for m in body["mistakes"]] == ["test_bank.md#Q01"]
+    item = body["mistakes"][0]
+    assert item["quality"] == "poor" and item["answer"] == "全局锁。"
+    assert item["feedback"] == "只说了一半"
+    assert item["question"] == "什么是 GIL？"
+    assert item["tags"] == ["python", "并发"] and item["source"] == "test_bank.md"
+    assert item["reference_points"] == [
+        "全局解释器锁，同一时刻只有一个线程执行字节码。",
+        "CPU 密集用多进程绕过。",
+    ]
+
+
+def test_train_mistakes_orders_poor_first_and_drops_improved(tmp_path):
+    """poor 排在 partial 前；复练转 good 后该题从错题本移除。"""
+    qa = _qa_dir(tmp_path)
+    settings = _settings(qa)
+    llm = _llm(
+        settings,
+        [
+            _assess_json("partial", "差一点"),  # Q01 首答
+            _assess_json("poor", "答错了"),  # Q02 首答
+            _assess_json("good", "这次很棒"),  # Q01 复练
+        ],
+    )
+    client = _client(_container(settings, llm, SessionRepository(tmp_path / "t.db")))
+    token = _login(client)
+    client.post(
+        "/train/answer", headers=_auth(token),
+        json={"question_id": "test_bank.md#Q01", "answer": "a1"},
+    )
+    client.post(
+        "/train/answer", headers=_auth(token),
+        json={"question_id": "test_bank.md#Q02", "answer": "a2"},
+    )
+    body = client.get("/train/mistakes", headers=_auth(token)).json()
+    assert [m["question_id"] for m in body["mistakes"]] == [
+        "test_bank.md#Q02",  # poor 在前
+        "test_bank.md#Q01",
+    ]
+
+    # 复练 Q01 转 good → 从错题本移除
+    client.post(
+        "/train/answer", headers=_auth(token),
+        json={"question_id": "test_bank.md#Q01", "answer": "a1 重答"},
+    )
+    body = client.get("/train/mistakes", headers=_auth(token)).json()
+    assert [m["question_id"] for m in body["mistakes"]] == ["test_bank.md#Q02"]
+
+
+def test_train_mistakes_requires_token_401(tmp_path):
+    settings = _settings(_qa_dir(tmp_path))
+    client = _client(_container(settings, _llm(settings, []), SessionRepository(tmp_path / "t.db")))
+    resp = client.get("/train/mistakes")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "TRAIN_UNAUTHORIZED"
+
+
 def test_train_answer_blocked_when_budget_exhausted(tmp_path):
     """answer 是会消耗 LLM 的接口：日预算熔断时必须 503（P2-③ 防护覆盖训练链路）。"""
     qa = _qa_dir(tmp_path)
@@ -429,7 +535,11 @@ def test_train_attempts_repository_roundtrip(tmp_path):
     )
     attempts = repo.list_train_attempts(USERNAME)
     assert [a.attempt_id for a in attempts] == [2, 1]  # 倒序
-    assert repo.list_train_done_question_ids(USERNAME) == {"b.md#Q01"}
-    assert repo.list_train_done_question_ids("other") == {"b.md#Q09"}
+    # 每题只保留最近一次作答：Q01 的 quality 从 good 复练为 partial
+    latest = repo.list_train_latest_attempts(USERNAME)
+    assert [a.attempt_id for a in latest] == [2]
+    assert latest[0].question_id == "b.md#Q01" and latest[0].quality == "partial"
+    assert [a.question_id for a in repo.list_train_latest_attempts("other")] == ["b.md#Q09"]
+    assert repo.list_train_latest_attempts("nobody") == []
     limited = repo.list_train_attempts(USERNAME, limit=1)
     assert len(limited) == 1 and limited[0].attempt_id == 2

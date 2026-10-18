@@ -1,13 +1,16 @@
-"""训练模式路由（刷题练习）：登录 → 抽题 → 作答研判 → 历史进度。
+"""训练模式路由（刷题练习）：登录 → 抽题 → 作答研判 → 历史进度 / 错题本。
 
 与模拟面试的边界：
 - 独立命名空间（``/train/*``）、独立令牌（``trn1.`` 前缀 + scope=train，见
   ``app.train.auth``），与面试 session_id 不可互换；
 - 评价复用面试同源的 ``app.agent.assess``（同 prompt、同解析、同 quality 口径）；
-- 成本防护：login 走专用限速（防爆破），next/reveal 走每 IP 限速（防题库抓取），
-  answer 是**唯一消耗 LLM** 的接口，挂 ``enforce_quota``（成本熔断 + 每 IP 限速）；
+- ``next`` 按「错题优先」抽题（poor > partial > 未作答 > good，见 ``QuestionBank.draw``），
+  并以请求里的 ``avoid_question_id`` 避免连出同一题；
+- ``mistakes`` 汇总最近一次研判非 good 的题（错题本：题干 / 我的作答 / 点评 / 答案要点）；
+- 成本防护：login 走专用限速（防爆破），next/reveal/mistakes 走每 IP 限速（防题库与
+  答案要点抓取），answer 是**唯一消耗 LLM** 的接口，挂 ``enforce_quota``（成本熔断 + 每 IP 限速）；
 - 题目内容只从服务端题库取（客户端仅提交 question_id），answer 接口无法被当成
-  「免费 LLM 代理」评任意文本；答案要点只在作答后下发。
+  「免费 LLM 代理」评任意文本；答案要点只在作答后（或 reveal / mistakes）下发。
 """
 
 from __future__ import annotations
@@ -29,6 +32,9 @@ from app.api.schemas import (
     TrainHistoryResponse,
     TrainLoginRequest,
     TrainLoginResponse,
+    TrainMistakeItem,
+    TrainMistakesResponse,
+    TrainNextRequest,
     TrainNextResponse,
     TrainQuestionView,
     TrainRevealRequest,
@@ -141,6 +147,7 @@ async def train_next(
     request: Request,
     services: Annotated[ServiceContainer, Depends(get_services)],
     username: Annotated[str, Depends(require_train_user)],
+    req: TrainNextRequest | None = None,
 ) -> TrainNextResponse:
     decision = get_quota().check_rate_only(_client_ip(request))
     if not decision.allowed:
@@ -149,8 +156,10 @@ async def train_next(
             headers={"Retry-After": str(decision.retry_after)} if decision.retry_after else None,
         )
     bank = _get_bank(services)
-    done_ids = services.repo.list_train_done_question_ids(username)
-    question = bank.draw(done_ids)
+    # 错题优先抽题：每题以「最近一次作答」的质量与时间为定序依据
+    latest = services.repo.list_train_latest_attempts(username)
+    states = {a.question_id: (a.quality, a.created_at) for a in latest}
+    question = bank.draw(states, avoid_id=req.avoid_question_id if req else None)
     assert question is not None  # bank.total > 0 已校验
     return TrainNextResponse(
         question=TrainQuestionView(
@@ -159,7 +168,7 @@ async def train_next(
             tags=list(question.tags),
             source=question.source,
         ),
-        done_count=len(done_ids),
+        done_count=len(states),
         total_count=bank.total,
     )
 
@@ -250,13 +259,52 @@ async def train_history(
 ) -> TrainHistoryResponse:
     bank = _get_bank(services)
     attempts = services.repo.list_train_attempts(username, limit=max(1, min(limit, 200)))
-    done_ids = services.repo.list_train_done_question_ids(username)
+    done_count = len(services.repo.list_train_latest_attempts(username))
     quality_counts: dict[str, int] = {}
     for attempt in attempts:
         quality_counts[attempt.quality] = quality_counts.get(attempt.quality, 0) + 1
     return TrainHistoryResponse(
         attempts=attempts,
-        done_count=len(done_ids),
+        done_count=done_count,
         total_count=bank.total,
         quality_counts=quality_counts,
     )
+
+
+@router.get("/train/mistakes")
+async def train_mistakes(
+    request: Request,
+    services: Annotated[ServiceContainer, Depends(get_services)],
+    username: Annotated[str, Depends(require_train_user)],
+) -> TrainMistakesResponse:
+    """错题本：最近一次研判非 good 的题（poor 在前），附我的作答 / 点评 / 答案要点。
+
+    与 reveal 同档防护：每 IP 限速（防整库抓答案要点），零 LLM 开销、不查成本熔断。
+    """
+    decision = get_quota().check_rate_only(_client_ip(request))
+    if not decision.allowed:
+        raise ApiError(
+            decision.status_code, decision.code, decision.message,
+            headers={"Retry-After": str(decision.retry_after)} if decision.retry_after else None,
+        )
+    bank = _get_bank(services)
+    latest = services.repo.list_train_latest_attempts(username)
+    mistakes = [a for a in latest if a.quality != "good"]
+    mistakes.sort(key=lambda a: 0 if a.quality == "poor" else 1)  # 稳定排序：poor 在前
+    items: list[TrainMistakeItem] = []
+    for attempt in mistakes:
+        question = bank.get(attempt.question_id)
+        items.append(
+            TrainMistakeItem(
+                question_id=attempt.question_id,
+                question=question.question if question else attempt.question,
+                tags=list(question.tags) if question else [],
+                source=question.source if question else attempt.source,
+                answer=attempt.answer,
+                quality=attempt.quality,
+                feedback=attempt.feedback,
+                reference_points=list(question.points) if question else [],
+                created_at=attempt.created_at,
+            )
+        )
+    return TrainMistakesResponse(mistakes=items, total_count=bank.total)

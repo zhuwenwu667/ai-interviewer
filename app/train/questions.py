@@ -10,7 +10,9 @@
       - 要点二
 
 - ``question_id`` 为 ``<文件名>#<Q 编号>``（内容寻址之外的稳定外部 ID，落库可溯源）；
-- 抽题优先排除该用户已作答过的题（``train_attempts``），全部答完后回到全量随机；
+- 抽题按「错题优先」定序：poor > partial > 未作答 > good，同级取最久未练的题；
+  未作答的题（含只 reveal 看过答案的）优先于已掌握（good）的题；``avoid_id`` 用于
+  避免「下一题」连出同一道题；
 - 参考答案要点只在「提交作答后」由 answer 接口返回，next 响应绝不下发（防提前泄题）。
 """
 
@@ -20,11 +22,20 @@ import random
 import re
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _HEADING_RE = re.compile(r"^##\s+(Q\d+)\s*[:：]\s*(?P<question>.+?)\s*$", re.MULTILINE)
 _TAGS_RE = re.compile(r"^-\s*tags\s*[:：]\s*(?P<tags>.+?)\s*$", re.MULTILINE)
 _POINT_RE = re.compile(r"^\s{2,}-\s+(?P<point>.+?)\s*$", re.MULTILINE)
+
+# 抽题优先级：数值越小越先被抽到。未作答的题（states 中无记录）单列一档，
+# 排在 partial 之后、good 之前——已掌握（good）的题最后复练。
+_QUALITY_PRIORITY = {"poor": 0, "partial": 1, "good": 3}
+_UNSEEN_PRIORITY = 2
+
+# 每题的「最近一次作答」状态：quality 与作答时间（用于同级定序）
+TrainState = tuple[str, datetime]
 
 
 @dataclass(frozen=True)
@@ -92,14 +103,37 @@ class QuestionBank:
     def get(self, question_id: str) -> TrainQuestion | None:
         return self._by_id.get(question_id)
 
-    def draw(self, exclude_ids: set[str] | None = None) -> TrainQuestion | None:
-        """随机抽一题；优先从未答过的题中抽，全部答完则回退到全量随机。"""
+    def draw(
+        self,
+        states: dict[str, TrainState] | None = None,
+        avoid_id: str | None = None,
+    ) -> TrainQuestion | None:
+        """错题优先抽一题；``avoid_id`` 用于避免连出同一题（如「下一题」跳过）。
+
+        ``states`` 为每题最近一次作答的 ``{question_id: (quality, 作答时间)}``：
+        - 优先级 poor > partial > 未作答 > good（未作答含只 reveal 看过答案的题）；
+        - 同级取最久未练（作答时间最早）的题，未作答者之间随机；
+        - 若最高优先的题恰为 ``avoid_id`` 则顺延到下一题；若只有这一道题仍返回它。
+        """
         if not self._questions:
             return None
-        excluded = exclude_ids or set()
-        fresh = [q for q in self._questions if q.question_id not in excluded]
-        pool = fresh or list(self._questions)
-        return self._rng.choice(pool)
+        state_map = states or {}
+        ordered = list(self._questions)
+        # 先打乱：同级且「未练时长」相同的题在稳定排序下保持随机顺序
+        self._rng.shuffle(ordered)
+
+        def _key(q: TrainQuestion) -> tuple[int, datetime]:
+            state = state_map.get(q.question_id)
+            priority = _QUALITY_PRIORITY.get(state[0]) if state else None
+            if state is None or priority is None:  # 未作答 / 未知 quality → 未作答档
+                return (_UNSEEN_PRIORITY, datetime.min)
+            return (priority, state[1])
+
+        ordered.sort(key=_key)
+        for question in ordered:
+            if question.question_id != avoid_id:
+                return question
+        return ordered[0]
 
 
 _BANKS: dict[Path, QuestionBank] = {}

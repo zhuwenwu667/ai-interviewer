@@ -208,6 +208,12 @@ class TrainQuestionView(BaseModel):
     source: str
 
 
+class TrainNextRequest(BaseModel):
+    """抽题请求（可空）。``avoid_question_id`` 为上一题 id，避免连出同一题。"""
+
+    avoid_question_id: str | None = Field(default=None, max_length=300)
+
+
 class TrainNextResponse(BaseModel):
     question: TrainQuestionView
     done_count: int = Field(ge=0, description="该用户已作答过的不同题目数")
@@ -252,3 +258,22 @@ class TrainHistoryResponse(BaseModel):
     done_count: int = Field(ge=0)
     total_count: int = Field(ge=0)
     quality_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class TrainMistakeItem(BaseModel):
+    """错题本条目：最近一次研判非 good 的题 + 我的作答 / 点评 / 答案要点。"""
+
+    question_id: str
+    question: str
+    tags: list[str] = Field(default_factory=list)
+    source: str
+    answer: str = Field(description="我最近一次的作答原文")
+    quality: str = Field(description="partial / poor（错题本只收非 good）")
+    feedback: str = Field(description="最近一次的研判点评")
+    reference_points: list[str] = Field(default_factory=list, description="题库答案要点")
+    created_at: datetime
+
+
+class TrainMistakesResponse(BaseModel):
+    mistakes: list[TrainMistakeItem]
+    total_count: int = Field(ge=0, description="题库总题数")

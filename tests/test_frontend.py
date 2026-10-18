@@ -139,7 +139,8 @@ def stub_backend(monkeypatch) -> dict:
             raise ApiClientError("用户名或密码错误", code="TRAIN_AUTH_FAILED", status=401)
         return {"token": "trn1.test-token", "token_type": "Bearer", "expires_in": 3600}
 
-    def train_next(self) -> dict:
+    def train_next(self, avoid_question_id: str | None = None) -> dict:
+        state["last_avoid"] = avoid_question_id
         return {
             "question": {
                 "question_id": "bank.md#Q01", "question": "什么是 GIL？",
@@ -173,11 +174,26 @@ def stub_backend(monkeypatch) -> dict:
             "done_count": 1, "total_count": 40, "quality_counts": {"partial": 1},
         }
 
+    def train_mistakes(self) -> dict:
+        return {
+            "mistakes": [
+                {
+                    "question_id": "bank.md#Q07", "question": "事务隔离级别有哪些？",
+                    "tags": ["mysql"], "source": "bank.md", "answer": "读已提交和可重复读。",
+                    "quality": "poor", "feedback": "漏了读未提交与串行化。",
+                    "reference_points": ["读未提交 / 读已提交 / 可重复读 / 串行化。"],
+                    "created_at": "2026-10-18T11:00:00+00:00",
+                }
+            ],
+            "total_count": 40,
+        }
+
     monkeypatch.setattr(BackendClient, "train_login", train_login)
     monkeypatch.setattr(BackendClient, "train_next", train_next)
     monkeypatch.setattr(BackendClient, "train_answer", train_answer)
     monkeypatch.setattr(BackendClient, "train_reveal", train_reveal)
     monkeypatch.setattr(BackendClient, "train_history", train_history)
+    monkeypatch.setattr(BackendClient, "train_mistakes", train_mistakes)
     return state
 
 
@@ -325,6 +341,11 @@ def test_train_page_login_then_answer_flow(stub_backend):
     assert "全局解释器锁，同一时刻只有一个线程执行字节码。" in text, "作答后应展示参考答案要点"
     assert _button(at, "下一题"), "研判后应提供下一题按钮"
 
+    # 下一题（A1）：应携带当前题 id 作为 avoid，避免错题优先下连出同一题
+    _button(at, "下一题").click().run()
+    assert not at.exception
+    assert stub_backend["last_avoid"] == "bank.md#Q01"
+
 
 def test_train_page_reveal_shows_points_without_answering(stub_backend):
     """答不出来：点「显示答案」→ 要点展示 + 可直接下一题 + 作答入口保留 + 进度不前进。"""
@@ -345,8 +366,31 @@ def test_train_page_reveal_shows_points_without_answering(stub_backend):
     assert metrics["已练习题数"] == "0 / 40", "看答案不计入已练进度"
 
 
+def test_train_page_mistakes_book_and_retrain(stub_backend):
+    """错题本（A3）：展示非 good 错题（题干 / 点评 / 答案要点），一键重练把该题放回答作区。"""
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _goto_train(at)
+    at.text_input[0].set_value("trainee")
+    at.text_input[1].set_value("train-pass")
+    _button(at, "登录并开始刷题").click().run()
+    assert not at.exception
+
+    text = "\n".join(m.value for m in at.markdown)
+    assert "事务隔离级别有哪些？" in text, "错题本应列出错题题干"
+    assert "串行化。" in text, "错题本应展示题库答案要点"
+    infos = "\n".join(i.value for i in at.info)
+    assert "漏了读未提交与串行化。" in infos, "错题本应展示最近一次研判点评"
+
+    # 一键重练：把错题放回答作区（题面切换 + 出现作答入口）
+    _button(at, "一键重练").click().run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "事务隔离级别有哪些？" in text, "重练后作答区应显示错题题面"
+    assert _button(at, "提交作答"), "重练后应出现作答入口"
+
+
 def test_train_page_401_falls_back_to_login(stub_backend, monkeypatch):
-    def expired_next(self) -> dict:
+    def expired_next(self, avoid_question_id: str | None = None) -> dict:
         raise ApiClientError("训练令牌无效或已过期，请重新登录", code="TRAIN_UNAUTHORIZED", status=401)
 
     monkeypatch.setattr(BackendClient, "train_next", expired_next)
