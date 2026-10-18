@@ -41,6 +41,12 @@ VALID_VIEWS = tuple(PAGE_LABELS)
 # 只覆盖 .block-container 与稳定的 data-testid 容器，避免依赖易变的内部类名。
 _STYLES = """
 <style>
+  /* Streamlit 页头默认是不透明浮层（实测高 60px、position:absolute、纯白背景、z-index 999990），
+     会盖住页面首元素：实测 Hero 徽章 top≈49.7px，故其顶部约 10px 被压掉（汉字上半截看不见）。
+     置为透明即露出首屏内容，且保留侧边栏折叠按钮可点（不能直接 display:none，否则移动端
+     收起侧边栏后无法再展开）。 */
+  header[data-testid="stHeader"] { background: transparent !important; box-shadow: none !important; }
+
   .block-container { max-width: 1080px; padding-top: 1.8rem; padding-bottom: 3rem; }
 
   .iv-hero {
