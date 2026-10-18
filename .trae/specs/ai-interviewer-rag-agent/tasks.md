@@ -1010,6 +1010,26 @@
     `INVALID_CANDIDATE_NAME`**（单测 `test_candidate_name_required` 即覆盖此路径）。两条路径都拒绝空白，
     前端另有 `name.strip()` 空则禁用按钮，故空白称呼实际到不了后端。
 
+## Task 28: 对外展示名与文案改版——「你面了吗」+ 显性岗位定位
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **动机**：原名「AI 模拟面试官」与 Hero「把你的简历，变成一场模拟面试」**与竞品同质化**——竞品人人都在说这句，
+    没传达任何工程差异；且首页/README 未**显性**说明这是面向「AI 应用开发 / 大模型后端」岗位的作品。
+  - **做法**：
+    - 对外展示名改为 **「你面了吗」**：`frontend/app.py` 侧边栏标题、浏览器标签
+      （`page_title="你面了吗 · AI 面试官"`）、FastAPI `/docs` 标题（「你面了吗 · AI 面试官 API」）。
+    - **岗位定位显性化**：Hero 徽章「面向 AI 应用开发 / 大模型后端 的作品」、侧边栏副标
+      「AI 面试官 · 面向 AI 应用开发 / 大模型后端」、README 首屏新增「**作品定位**」段、
+      `docs/interview_talk.md` 一分钟陈述开头点明名字与岗位。
+    - **Hero 文案重写**：同质化句 → **「你的简历，经得起几个回合？」**，副文案强调「结论可翻回知识库原文对账」。
+  - **关键取舍**：**只改对外展示层**（UI 标题 / Hero / README 首屏 / 讲解稿 / `/docs` 标题），
+    **技术标识 `ai-interviewer` 全部不动**（repo slug、`pyproject.name`、镜像名、compose 项目名、代码内注释）——
+    repo 改 slug 会让已分享链接失效，镜像/容器名变更还要回归一次部署，属「为改名引发的回归」，不划算。
+  - **单测**：`tests/test_frontend.py` 开始页用例断言更新为新 Hero 标题并**断言岗位定位徽章已渲染**；
+    `ruff check` 全过、`uv run pytest -q -m "not integration"` → **197 passed / 1 skipped**、`check_eval_gate.py` 退出码 0。
+  - **线上验证**：重建后容器内前端源码含新文案（`docker compose exec streamlit grep`），`/docs` 标题生效。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -1036,3 +1056,4 @@
 | D21 | Task 25（作品集增强：面试历史回看 + 复练提升率） |
 | D22 | Task 26（作品集增强：效果看板——评测数字进产品） |
 | D23 | Task 27（作品集增强：称呼必填——历史记录可辨识到人） |
+| D24 | Task 28（对外展示名与文案改版：「你面了吗」+ 显性岗位定位） |

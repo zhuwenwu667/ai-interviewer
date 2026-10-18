@@ -26,7 +26,7 @@ access_logger = logging.getLogger("app.access")
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="AI 模拟面试官 API",
+        title="你面了吗 · AI 面试官 API",
         description="Agentic RAG + LangGraph 面试 Agent 后端服务",
         version="0.1.0",
     )

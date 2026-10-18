@@ -299,7 +299,8 @@ def test_start_page_renders_and_starts_interview(stub_backend):
 
     # 开始页：Hero 预告 + 来源选择 + 方向/题数控件 + 折叠的服务诊断
     text = "\n".join(m.value for m in at.markdown)
-    assert "把你的简历，变成一场模拟面试" in text, "开始页应渲染产品说明"
+    assert "你的简历，经得起几个回合？" in text, "开始页应渲染产品说明"
+    assert "面向 AI 应用开发 / 大模型后端 的作品" in text, "开始页应显性标注岗位定位"
     for dimension in ("岗位匹配度", "基础知识", "项目深度", "表达逻辑", "问题解决"):
         assert dimension in text, f"开始页应预告评分维度：{dimension}"
     assert "知识库来源" in [r.label for r in at.radio]

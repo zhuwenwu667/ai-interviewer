@@ -28,11 +28,11 @@ MAX_UPLOAD_MB = 10
 
 _HERO = """
 <div class="iv-hero">
-  <span class="iv-hero-badge">简历驱动 · 评价可溯源</span>
-  <h1 class="iv-hero-title">把你的简历，变成一场模拟面试</h1>
+  <span class="iv-hero-badge">面向 AI 应用开发 / 大模型后端 的作品</span>
+  <h1 class="iv-hero-title">你的简历，经得起几个回合？</h1>
   <p class="iv-hero-sub">
-    上传简历与岗位 JD，AI 面试官据此出题、逐题追问；结束时给出五维评分、亮点与改进建议，
-    每处评价都能回溯到知识库原文。
+    上传简历与岗位 JD，AI 面试官照着它们出题、逐个回合追问；结束时递你一份带雷达图的体检报告——
+    每一个结论都能翻回知识库原文对账，绝不含糊其辞。
   </p>
   <div class="iv-hero-dims-wrap">
     <span class="iv-dims-lead">报告维度</span>

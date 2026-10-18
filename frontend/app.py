@@ -184,7 +184,8 @@ def _confirm_restart() -> None:
 
 def _render_sidebar() -> None:
     with st.sidebar:
-        st.title("AI 模拟面试官")
+        st.title("你面了吗")
+        st.caption("AI 面试官 · 面向 AI 应用开发 / 大模型后端")
 
         options = ["start", "train", "metrics"]
         if st.session_state["session_id"]:
@@ -219,7 +220,7 @@ def _render_sidebar() -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="AI 模拟面试官", page_icon="🎤", layout="wide")
+    st.set_page_config(page_title="你面了吗 · AI 面试官", page_icon="🎤", layout="wide")
     st.markdown(_STYLES, unsafe_allow_html=True)
     _init_state()
 
