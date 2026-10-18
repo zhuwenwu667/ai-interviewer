@@ -173,6 +173,15 @@ def _render_history(client: BackendClient) -> None:
                 "质量分布："
                 + " ｜ ".join(f"{_QUALITY_BADGES.get(k, k)} × {v}" for k, v in counts.items())
             )
+        retrain = history.get("retrain_stats") or {}
+        if retrain.get("retrained_count"):
+            st.caption(
+                f"复练提升率：{retrain.get('improvement_rate', 0.0):.0%}"
+                f"（{retrain.get('improved_count', 0)}/{retrain.get('retrained_count', 0)} "
+                "道复练题最近一次转为「掌握良好」）"
+            )
+        else:
+            st.caption("复练提升率：暂无复练记录（非 good 的题再次练习后即计入）。")
         attempts = history.get("attempts") or []
         if not attempts:
             st.caption("还没有作答记录。")

@@ -25,6 +25,7 @@ from app.api.schemas import (
     MessageRecord,
     SessionRecord,
     SessionStatus,
+    SessionSummary,
     TrainAttemptRecord,
 )
 
@@ -147,6 +148,29 @@ class SessionRepository:
                 "UPDATE sessions SET status = ?, updated_at = ? WHERE session_id = ?",
                 (status, _iso(_utcnow()), session_id),
             )
+
+    def list_sessions(self, limit: int = 50) -> list[SessionSummary]:
+        """面试历史列表：按创建时间倒序，附带该会话是否已生成报告（供回看）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT s.*, (r.session_id IS NOT NULL) AS has_report FROM sessions s"
+                " LEFT JOIN reports r ON r.session_id = s.session_id"
+                " ORDER BY s.created_at DESC, s.session_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            SessionSummary(
+                session_id=row["session_id"],
+                track=row["track"],
+                num_questions=row["num_questions"],
+                candidate_name=row["candidate_name"],
+                status=row["status"],
+                created_at=_parse(row["created_at"]),
+                updated_at=_parse(row["updated_at"]),
+                has_report=bool(row["has_report"]),
+            )
+            for row in rows
+        ]
 
     # ------------------------------------------------------------------
     # 消息
@@ -275,6 +299,26 @@ class SessionRepository:
                 "SELECT * FROM train_attempts WHERE username = ?"
                 " ORDER BY attempt_id DESC LIMIT ?",
                 (username, limit),
+            ).fetchall()
+        return [
+            TrainAttemptRecord(
+                attempt_id=row["attempt_id"],
+                question_id=row["question_id"],
+                question=row["question"],
+                answer=row["answer"],
+                quality=row["quality"],
+                feedback=row["feedback"],
+                created_at=_parse(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_train_all_attempts(self, username: str) -> list[TrainAttemptRecord]:
+        """该用户全部作答（按 attempt_id 升序）——供复练提升率等存量数据聚合。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM train_attempts WHERE username = ? ORDER BY attempt_id ASC",
+                (username,),
             ).fetchall()
         return [
             TrainAttemptRecord(

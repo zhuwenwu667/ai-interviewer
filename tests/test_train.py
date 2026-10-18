@@ -21,7 +21,8 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import ServiceContainer
 from app.api.quota import QuotaManager, get_quota, reset_quota
-from app.api.train import _reset_login_limiter
+from app.api.schemas import TrainAttemptRecord
+from app.api.train import _reset_login_limiter, compute_retrain_stats
 from app.config.settings import Settings
 from app.core.llm import DeepSeekChatClient
 from app.main import create_app
@@ -543,3 +544,79 @@ def test_train_attempts_repository_roundtrip(tmp_path):
     assert repo.list_train_latest_attempts("nobody") == []
     limited = repo.list_train_attempts(USERNAME, limit=1)
     assert len(limited) == 1 and limited[0].attempt_id == 2
+    # 全量（升序）——复练提升率的数据源：同一题两次作答都在
+    all_attempts = repo.list_train_all_attempts(USERNAME)
+    assert [a.attempt_id for a in all_attempts] == [1, 2]
+    assert [a.quality for a in all_attempts] == ["good", "partial"]
+    assert repo.list_train_all_attempts("nobody") == []
+
+
+# ---------------------------------------------------------------------------
+# 复练提升率（优化项2）：零 LLM 的存量数据聚合
+# ---------------------------------------------------------------------------
+def _attempt(qid: str, quality: str, aid: int) -> TrainAttemptRecord:
+    return TrainAttemptRecord(
+        attempt_id=aid, question_id=qid, question="q", answer="a",
+        quality=quality, feedback="f", created_at=datetime(2026, 10, 18, tzinfo=UTC),
+    )
+
+
+def test_compute_retrain_stats_math_and_edges():
+    """单次作答不计复练；非 good 后有新作答才算；同题多次只按最近一次计趋势。"""
+    # 无复练：都是首答，不计
+    stats = compute_retrain_stats([_attempt("q1", "good", 1), _attempt("q2", "poor", 2)])
+    assert (stats.retrained_count, stats.improved_count, stats.improvement_rate) == (0, 0, 0.0)
+
+    # 复练且提升：poor → good
+    stats = compute_retrain_stats([_attempt("q1", "poor", 1), _attempt("q1", "good", 2)])
+    assert (stats.retrained_count, stats.improved_count) == (1, 1)
+    assert stats.improvement_rate == 1.0
+
+    # 多次复练只按最近一次计趋势：poor → partial → good（算提升 1 道）
+    stats = compute_retrain_stats(
+        [_attempt("q1", "poor", 1), _attempt("q1", "partial", 2), _attempt("q1", "good", 3)]
+    )
+    assert (stats.retrained_count, stats.improved_count) == (1, 1)
+
+    # good → good 不算复练（起点非「非 good」）
+    stats = compute_retrain_stats([_attempt("q1", "good", 1), _attempt("q1", "good", 2)])
+    assert stats.retrained_count == 0
+
+    # 混合：q1 复练未提升（partial → poor）、q2 复练提升（poor → good）、q3 首答 good
+    stats = compute_retrain_stats(
+        [
+            _attempt("q1", "partial", 1), _attempt("q1", "poor", 2),
+            _attempt("q2", "poor", 3), _attempt("q2", "good", 4),
+            _attempt("q3", "good", 5),
+        ]
+    )
+    assert (stats.retrained_count, stats.improved_count) == (2, 1)
+    assert stats.improvement_rate == 0.5
+
+
+def test_train_history_includes_retrain_stats(tmp_path):
+    """GET /train/history 附带复练提升率：Q01 poor→good 记 1 道提升、Q02 首答 good 不计。"""
+    qa = _qa_dir(tmp_path)
+    settings = _settings(qa)
+    llm = _llm(
+        settings,
+        [
+            _assess_json("poor", "差"),  # Q01 首答
+            _assess_json("good", "好"),  # Q01 复练
+            _assess_json("good", "好"),  # Q02 首答
+        ],
+    )
+    client = _client(_container(settings, llm, SessionRepository(tmp_path / "t.db")))
+    token = _login(client)
+    for qid, answer in [
+        ("test_bank.md#Q01", "a"),
+        ("test_bank.md#Q01", "a 重答"),
+        ("test_bank.md#Q02", "b"),
+    ]:
+        assert client.post(
+            "/train/answer", headers=_auth(token), json={"question_id": qid, "answer": answer}
+        ).status_code == 200
+
+    stats = client.get("/train/history", headers=_auth(token)).json()["retrain_stats"]
+    assert stats["retrained_count"] == 1 and stats["improved_count"] == 1
+    assert stats["improvement_rate"] == 1.0

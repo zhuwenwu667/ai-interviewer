@@ -171,6 +171,18 @@ class SessionDetailResponse(BaseModel):
     messages: list[MessageRecord]
 
 
+class SessionSummary(SessionRecord):
+    """GET /sessions 列表条目：会话元数据 + 是否已生成报告（供回看报告）。"""
+
+    has_report: bool = False
+
+
+class SessionListResponse(BaseModel):
+    """GET /sessions 响应：面试历史列表（按创建时间倒序）。"""
+
+    sessions: list[SessionSummary] = Field(default_factory=list)
+
+
 class ErrorBody(BaseModel):
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
@@ -253,11 +265,26 @@ class TrainAttemptRecord(BaseModel):
     created_at: datetime
 
 
+class TrainRetrainStats(BaseModel):
+    """复练提升率（零 LLM 的存量数据聚合）。
+
+    对每题按作答先后看：某次「非 good」之后还有新作答 → 该题算「复练过」；
+    其中最近一次作答转为 good 的题算「已提升」。同题多次复练只按最近一次计趋势。
+    """
+
+    retrained_count: int = Field(default=0, ge=0, description="复练过的题数（非 good 后有新作答）")
+    improved_count: int = Field(default=0, ge=0, description="其中最近一次转为 good 的题数")
+    improvement_rate: float = Field(
+        default=0.0, ge=0, le=1, description="improved_count / retrained_count，无复练时为 0"
+    )
+
+
 class TrainHistoryResponse(BaseModel):
     attempts: list[TrainAttemptRecord]
     done_count: int = Field(ge=0)
     total_count: int = Field(ge=0)
     quality_counts: dict[str, int] = Field(default_factory=dict)
+    retrain_stats: TrainRetrainStats = Field(default_factory=TrainRetrainStats)
 
 
 class TrainMistakeItem(BaseModel):

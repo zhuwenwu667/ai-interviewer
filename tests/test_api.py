@@ -336,6 +336,40 @@ def test_report_not_ready_404(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 面试历史列表（优化项1）：GET /sessions 按创建时间倒序，标记是否已生成报告
+# ---------------------------------------------------------------------------
+def test_list_sessions_orders_and_flags_report(tmp_path):
+    settings = _settings()
+    llm = _llm(settings, ["开场。", _question_json("Q1？", "缓存", "ev-1"), _assess_json("good", "准确")])
+    container = _container(settings, llm, SessionRepository(tmp_path / "api.db"))
+    client = _client(container)
+
+    assert client.get("/sessions").json() == {"sessions": []}  # 空列表
+
+    # 会话1：仅创建（未开始、无报告）
+    sid1 = client.post("/sessions", data={"track": "backend", "num_questions": 1}).json()[
+        "session_id"
+    ]
+    # 会话2：创建 → 开场 → 作答 → 结束并落报告
+    sid2 = client.post("/sessions", data={"track": "ai_app", "num_questions": 1}).json()[
+        "session_id"
+    ]
+    _post_sse(client, sid2, "")
+    _post_sse(client, sid2, "答：用布隆过滤器拦截不存在的数据。")
+
+    body = client.get("/sessions").json()
+    sessions = body["sessions"]
+    assert [s["session_id"] for s in sessions] == [sid2, sid1]  # 创建时间倒序
+    assert sessions[0]["has_report"] is True and sessions[0]["track"] == "ai_app"
+    assert sessions[0]["status"] == "finished"
+    assert sessions[1]["has_report"] is False and sessions[1]["status"] == "active"
+    assert all({"session_id", "track", "num_questions", "has_report"} <= set(s) for s in sessions)
+
+    # limit 生效
+    assert len(client.get("/sessions", params={"limit": 1}).json()["sessions"]) == 1
+
+
+# ---------------------------------------------------------------------------
 # TR-9.3：SSE 首事件为 stage；上游全 401 → 图内降级跑题 → 报告节点 error 事件
 # ---------------------------------------------------------------------------
 def test_upstream_401_degrades_then_chinese_error_event(tmp_path):

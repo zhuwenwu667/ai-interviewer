@@ -126,11 +126,30 @@ def stub_backend(monkeypatch) -> dict:
     def get_report(self, session_id: str) -> dict:
         return REPORT
 
+    def list_sessions(self) -> dict:
+        return {
+            "sessions": [
+                {
+                    "session_id": SESSION_ID, "track": "ai_app", "num_questions": 1,
+                    "candidate_name": None, "status": "finished",
+                    "created_at": "2026-10-16T09:00:00+00:00",
+                    "updated_at": "2026-10-16T09:30:00+00:00", "has_report": True,
+                },
+                {
+                    "session_id": "sess-0002", "track": "backend", "num_questions": 3,
+                    "candidate_name": "候选人乙", "status": "active",
+                    "created_at": "2026-10-17T09:00:00+00:00",
+                    "updated_at": "2026-10-17T09:05:00+00:00", "has_report": False,
+                },
+            ]
+        }
+
     monkeypatch.setattr(BackendClient, "health", health)
     monkeypatch.setattr(BackendClient, "create_session", create_session)
     monkeypatch.setattr(BackendClient, "get_session", get_session)
     monkeypatch.setattr(BackendClient, "post_message", post_message)
     monkeypatch.setattr(BackendClient, "get_report", get_report)
+    monkeypatch.setattr(BackendClient, "list_sessions", list_sessions)
     monkeypatch.setattr(BackendClient, "finish", lambda self, sid: REPORT)
 
     # 训练模式桩（Task 22）：登录 / 抽题 / 作答 / 历史
@@ -172,6 +191,9 @@ def stub_backend(monkeypatch) -> dict:
                 }
             ],
             "done_count": 1, "total_count": 40, "quality_counts": {"partial": 1},
+            "retrain_stats": {
+                "retrained_count": 2, "improved_count": 1, "improvement_rate": 0.5
+            },
         }
 
     def train_mistakes(self) -> dict:
@@ -256,6 +278,24 @@ def test_start_page_tabs_offer_train_entry(stub_backend):
     assert _button(at, "登录并开始刷题"), "首页训练入口应能直达训练页登录表单"
 
 
+def test_start_page_history_opens_existing_report(stub_backend):
+    """历史面试记录（优化项1）：列出会话，已生成报告的会话可点开回看。"""
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    assert not at.exception
+
+    labels = [e.label for e in at.expander]
+    assert any("历史面试记录" in label for label in labels), "开始页应提供历史记录入口"
+    text = "\n".join(m.value for m in at.markdown)
+    assert "ai_app" in text and "1 题" in text and "已完成" in text
+    assert "进行中" in text, "未完成的会话应标注为进行中"
+
+    # 点开既有报告 → 切到报告页并复用同一份报告展示
+    _button(at, "回看报告").click().run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "岗位匹配度：**4/5**" in text, "回看应复用现有报告展示"
+
+
 def test_sse_error_event_shows_banner_with_code(stub_backend):
     stub_backend["stream"] = _error_stream
     at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
@@ -328,6 +368,10 @@ def test_train_page_login_then_answer_flow(stub_backend):
     assert "什么是 GIL？" in text, "登录后应渲染抽到的题目"
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["已练习题数"] == "0 / 40"
+
+    # 复练提升率（优化项2）：来自 /train/history 的 retrain_stats（零 LLM 聚合）
+    captions = "\n".join(c.value for c in at.caption)
+    assert "复练提升率：50%（1/2 道复练题" in captions
 
     # 作答 → 提交 → 研判结论 + 参考答案要点
     at.text_area[0].set_value("GIL 是全局解释器锁。")

@@ -29,6 +29,7 @@ from app.api.quota import RateLimiter, get_quota
 from app.api.schemas import (
     TrainAnswerRequest,
     TrainAnswerResponse,
+    TrainAttemptRecord,
     TrainHistoryResponse,
     TrainLoginRequest,
     TrainLoginResponse,
@@ -37,6 +38,7 @@ from app.api.schemas import (
     TrainNextRequest,
     TrainNextResponse,
     TrainQuestionView,
+    TrainRetrainStats,
     TrainRevealRequest,
     TrainRevealResponse,
 )
@@ -87,6 +89,30 @@ def _check_configured(services: ServiceContainer) -> None:
             "训练模式未启用：服务端未配置 TRAIN_USERNAME / TRAIN_PASSWORD_HASH / "
             "TRAIN_TOKEN_SECRET（参考 .env.example）",
         )
+
+
+def compute_retrain_stats(attempts: list[TrainAttemptRecord]) -> TrainRetrainStats:
+    """复练提升率：非 good 的题复练后转为 good 的比例（零 LLM 的存量数据聚合）。
+
+    ``attempts`` 需按作答先后（attempt_id 升序）传入。对每题：若某次「非 good」之后
+    还有新作答 → 该题算「复练过」；其中最近一次作答为 good → 算「已提升」。
+    同题多次复练只按最近一次计趋势（避免一次成功被多次尝试稀释）。
+    """
+    by_question: dict[str, list[str]] = {}
+    for attempt in attempts:
+        by_question.setdefault(attempt.question_id, []).append(attempt.quality)
+    retrained = improved = 0
+    for qualities in by_question.values():
+        if len(qualities) < 2:
+            continue
+        if any(q != "good" for q in qualities[:-1]):
+            retrained += 1
+            if qualities[-1] == "good":
+                improved += 1
+    rate = improved / retrained if retrained else 0.0
+    return TrainRetrainStats(
+        retrained_count=retrained, improved_count=improved, improvement_rate=rate
+    )
 
 
 def _get_bank(services: ServiceContainer) -> QuestionBank:
@@ -268,6 +294,7 @@ async def train_history(
         done_count=done_count,
         total_count=bank.total,
         quality_counts=quality_counts,
+        retrain_stats=compute_retrain_stats(services.repo.list_train_all_attempts(username)),
     )
 
 

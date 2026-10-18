@@ -182,6 +182,10 @@ class BackendClient:
         """GET /sessions/{id} → {session: SessionRecord, messages: [MessageRecord]}。"""
         return self._get_json(f"/sessions/{session_id}")
 
+    def list_sessions(self) -> dict:
+        """GET /sessions → {sessions: [SessionSummary]}（按创建时间倒序，含 has_report）。"""
+        return self._get_json("/sessions")
+
     def get_report(self, session_id: str) -> dict:
         """GET /sessions/{id}/report → InterviewReport（未生成时抛 404 ApiClientError）。"""
         return self._get_json(f"/sessions/{session_id}/report")

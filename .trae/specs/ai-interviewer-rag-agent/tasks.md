@@ -880,6 +880,35 @@
     count=1、首条 `Q25 / poor / 4 条答案要点 / 我的作答原文`（**错题本线上确认**）；不带 avoid 再抽 → 仍返回 `Q25`
     （**错题优先复练线上确认**，done/total=2/40）；无令牌 `/train/next` → 401；`/health` → 200；前端 `:8501` → 200。
 
+## Task 25: 存量数据产品化——面试历史回看 + 复练提升率（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **背景**：两项都是「数据已在库里、产品没露出来」——① 只有按 id 查单场的能力，浏览器一关 `session_id` 就找不回，
+    多场面试无法回看/对比；② `train_attempts` 已存每次作答，却只展示表层质量分布，讲不出「练了有没有变好」。
+  - **实现**：
+    - `app/storage/db.py`：新增 `list_sessions(limit)`——`sessions LEFT JOIN reports` 一次取回元数据 + `has_report`
+      并按 `created_at` 倒序；新增 `list_train_all_attempts(username)`（按 `attempt_id` 升序）供存量聚合。
+    - `app/api/schemas.py`：新增 `SessionSummary(SessionRecord + has_report)` / `SessionListResponse` /
+      `TrainRetrainStats`；`TrainHistoryResponse` 增字段 `retrain_stats`。
+    - `app/api/sessions.py`：新增 `GET /sessions`（鉴权口径与既有会话接口一致，不加额外门禁）。
+    - `app/api/train.py`：新增纯函数 `compute_retrain_stats(attempts)`——每题某次「非 good」后仍有新作答记为**复练**、
+      其中最近一次转 good 记为**提升**，`improvement_rate = 提升/复练`（无复练为 0，同题多次只按最近一次计趋势）；
+      挂到 `GET /train/history` 的新字段，**零 LLM**。
+    - 前端：`api_client.list_sessions()`；`views_start.py` 在「模拟面试」Tab 下加**折叠的**「历史面试记录」——
+      逐条列时间/方向/题数/状态，已生成报告的带「回看报告」按钮（置 `session_id` + 清报告缓存 + 跳报告页，
+      **复用现有报告渲染**）；`views_train.py` 在「最近作答记录」区展示复练提升率。
+  - **单测**：`tests/test_api.py` 新增 `test_list_sessions_orders_and_flags_report`（空列表 / 倒序 / `has_report` / `limit`）；
+    `tests/test_train.py` 新增 `test_compute_retrain_stats_math_and_edges`（无复练 / 全提升 / 多次复练 / good→good 不算）
+    与 `test_train_history_includes_retrain_stats`，并扩展仓储往返断言 `list_train_all_attempts`；
+    `tests/test_frontend.py` 新增 `test_start_page_history_opens_existing_report` 并断言训练页提升率文案。
+    `uv run pytest -q -m "not integration"` → **191 passed / 1 skipped**；`ruff check` 全过；门禁退出码 0。
+  - **关键取舍**：历史记录做在**开始页折叠区**而非新增独立页（两次点击即可回看、不牺牲首屏折叠线）；
+    复练提升率挂在现有 `history` 接口的**新字段**而非新接口（数据同源、零额外请求，避免为一个比例多开端点）；
+    列表鉴权与既有会话接口保持一致（单用户演示项目，不新开门禁做过度工程）。
+  - **文档回写**：README §5 接口表加 `GET /sessions`、更新 `/train/history` 行、§6.9 增补复练提升率（⑧）、
+    新增 §6.11、单测数 187→191；`docs/interview_talk.md` §5.9 增补 ⑨、新增 §5.10、下一步追加 ⑦⑧、单测数同步。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -903,3 +932,4 @@
 | D18 | Task 22（训练模式：单账号刷题练习与进度追踪） |
 | D19 | Task 23（首页信息流重排与功能入口显性化） |
 | D20 | Task 24（作品集增强：训练模式加固——错题优先抽题与错题本） |
+| D21 | Task 25（作品集增强：面试历史回看 + 复练提升率） |

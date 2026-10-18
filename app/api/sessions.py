@@ -29,6 +29,7 @@ from app.api.schemas import (
     InterviewReport,
     PostMessageRequest,
     SessionDetailResponse,
+    SessionListResponse,
     SessionRecord,
     SseEvent,
 )
@@ -236,6 +237,17 @@ async def finish_session(
     finally:
         reset_tracer(token)
         tracer.close()
+
+
+@router.get("/sessions")
+async def list_sessions(
+    services: Annotated[ServiceContainer, Depends(get_services)],
+    limit: int = 50,
+) -> SessionListResponse:
+    """面试历史列表：按创建时间倒序，标记是否已生成报告（供回看 / 对比）。"""
+    return SessionListResponse(
+        sessions=services.repo.list_sessions(limit=max(1, min(limit, 200)))
+    )
 
 
 @router.get("/sessions/{session_id}")

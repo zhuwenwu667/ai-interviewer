@@ -192,6 +192,7 @@ def _render_interview_tab(client: BackendClient, health: dict | None) -> None:
 
     _render_status(health)
     _render_cta_hint(track)
+    _render_history(client)
 
 
 def _render_train_tab(health: dict | None) -> None:
@@ -204,6 +205,39 @@ def _render_train_tab(health: dict | None) -> None:
         st.session_state["requested_page"] = "train"  # 下一轮生效（避免同轮改写导航组件 key）
         st.rerun()
     _render_status(health)
+
+
+def _open_report(session_id: str) -> None:
+    """从历史记录点开某场面试的既有报告（清缓存，下一轮由报告页重新拉取）。"""
+    st.session_state.update(session_id=session_id, report=None, requested_page="report")
+    clear_error()
+    st.rerun()
+
+
+def _render_history(client: BackendClient) -> None:
+    """面试历史记录：按创建时间倒序列出会话，可点开回看既有报告。"""
+    with st.expander("历史面试记录（点开回看报告）", expanded=False):
+        try:
+            data = client.list_sessions()
+        except ApiClientError as exc:
+            st.caption(f"历史记录获取失败：{exc}")
+            return
+        sessions = data.get("sessions") or []
+        if not sessions:
+            st.caption("还没有面试记录——完成一场面试后，这里可以随时回看报告。")
+            return
+        for item in sessions:
+            cols = st.columns([3, 2, 2, 2, 2])
+            when = str(item.get("created_at", ""))[:16].replace("T", " ")
+            cols[0].markdown(f"{when}")
+            cols[1].markdown(f"{item.get('track', '')}")
+            cols[2].markdown(f"{item.get('num_questions', 0)} 题")
+            cols[3].markdown("已完成" if item.get("status") == "finished" else "进行中")
+            if item.get("has_report"):
+                if cols[4].button("回看报告", key=f"open_report_{item['session_id']}"):
+                    _open_report(item["session_id"])
+            else:
+                cols[4].caption("暂无报告")
 
 
 def _render_diagnostics_details(health: dict | None) -> None:

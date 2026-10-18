@@ -123,11 +123,12 @@ deploy/          deploy.sh（Linux 一键部署）
 | `POST` | `/sessions/{id}/finish` | 提前结束并生成报告；已结束会话幂等返回既有报告 |
 | `GET` | `/sessions/{id}` | 会话详情 + 消息列表 |
 | `GET` | `/sessions/{id}/report` | 获取报告；未生成返回 404 `REPORT_NOT_FOUND` |
+| `GET` | `/sessions` | 面试历史列表（按创建时间倒序，含 `has_report` 供回看既有报告）；可选 `limit` |
 | `POST` | `/train/login` | 训练模式登录（单账号，scrypt 校验）；返回短期 Bearer 令牌（`trn1.` 前缀） |
 | `POST` | `/train/next` | 抽一道训练题（**错题优先**：poor > partial > 未作答 > good；可带 `avoid_question_id` 避免连出同题；响应**不含答案要点**）；需令牌 |
 | `POST` | `/train/answer` | 提交作答 → 与面试同口径研判（good/partial/poor）+ 参考答案要点；需令牌，挂配额门禁 |
 | `POST` | `/train/reveal` | 答不出来直接看答案要点（**不调 LLM、不落库**，看答案不计入已练进度）；需令牌，每 IP 限速 |
-| `GET` | `/train/history` | 最近作答记录 + 进度统计（已练题数 / 题库总数 / 质量分布）；需令牌 |
+| `GET` | `/train/history` | 最近作答记录 + 进度统计（已练题数 / 题库总数 / 质量分布 / **复练提升率**）；需令牌 |
 | `GET` | `/train/mistakes` | 错题本：最近一次研判非 good 的题（poor 在前）+ 我的作答 / 点评 / 答案要点；需令牌，每 IP 限速 |
 
 **SSE 事件**：`stage`（阶段推进，含轮次）、`token`（面试官文本增量）、`done`（本轮结束，`error` 时标注）、`error`（中文可读错误码，不断开连接）。
@@ -293,7 +294,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（187 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（191 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -419,14 +420,18 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 7. **错题本（A3）**：`GET /train/mistakes` 汇总最近一次研判非 good 的题（poor 排在前），每条含
    题干 / 我的作答 / 研判点评 / 题库答案要点，前端「错题本」区块可**一键重练**（把该题放回答作区）
    或就地展开答案要点；复练转 good 后自动从错题本移除。
+8. **复练提升率**：`GET /train/history` 附带 `retrain_stats`——对每题按作答先后看，某次「非 good」之后
+   还有新作答即算「复练过」，其中最近一次转为 good 的算「已提升」，同题多次复练只按最近一次计趋势。
+   这是**零 LLM 的存量数据聚合**（不新增任何模型调用），却给出竞品通常只有表层正确率时缺失的「复练效果」数字。
 
-**实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 18 例覆盖
+**实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 20 例覆盖
 哈希往返/篡改/过期、题库解析、**错题优先定序（poor>partial>未作答>good、同级最久未练、avoid 顺延）**、
 login→next→answer→history 全链路、未配置 503、错口令 401、未知题 404、**预算熔断时 answer 503**、
-登录限速 429、reveal 零 LLM 调用且不落库、**mistakes 只收非 good / poor 在前 / 附答案要点 / 复练转 good 移除**；
-`tests/test_frontend.py` 5 例（登录→作答→研判+要点、显示答案按钮、「下一题」携带 avoid、错题本一键重练、
-401 自动回登录态）。
-`uv run pytest -q -m "not integration"` → **187 passed / 1 skipped**；`ruff check` 全过；
+登录限速 429、reveal 零 LLM 调用且不落库、**mistakes 只收非 good / poor 在前 / 附答案要点 / 复练转 good 移除**、
+**复练提升率数学与边界（无复练/全提升/多次复练）**；
+`tests/test_frontend.py` 6 例（登录→作答→研判+要点、显示答案按钮、「下一题」携带 avoid、错题本一键重练、
+起始页历史记录点开回看报告、401 自动回登录态）。
+`uv run pytest -q -m "not integration"` → **191 passed / 1 skipped**；`ruff check` 全过；
 `check_eval_gate.py` 退出码 0。
 
 > ⚠️ 公网当前为明文 HTTP：训练密码会明文传输，**务必独立设置、严禁与任何其他场景复用**
@@ -470,6 +475,30 @@ login→next→answer→history 全链路、未配置 503、错口令 401、未�
 
 **取舍**：**Tab 而非双卡**——双卡曝光更足但首屏变长需滚动；Tab 首屏最紧凑，且天然承接导航语义：
 训练模式仍经 Tab + 侧边栏双入口可达，曝光损失有限（日后若要把它当主推卖点，改双卡成本很低）。
+
+### 6.11 存量数据的产品化：面试历史回看 + 复练提升率（2026-10-18）
+
+**问题**：两项都属「数据已经在库里、但产品没露出来」——① 只有 `GET /sessions/{id}` 与 `GET /sessions/{id}/report`，
+**没有列表接口**，浏览器一关就找不回 `session_id`，多场面试无法回看/对比；② `train_attempts` 已存下每次作答，
+却只展示表层「质量分布」，讲不出「练了有没有变好」。
+
+**做法**：
+1. **面试历史列表**：仓储 `list_sessions(limit)` 用 `sessions LEFT JOIN reports` 一次查出会话元数据 + 是否已有报告，
+   按 `created_at` 倒序；新增 `GET /sessions`（**鉴权口径与既有会话接口一致**，不加额外门禁），响应 `SessionListResponse`
+   （条目即 `SessionSummary = SessionRecord + has_report`）。前端在开始页「模拟面试」Tab 下加**折叠的**「历史面试记录」
+   区块（不占首屏高度），逐条列出时间/方向/题数/状态，已生成报告的提供「回看报告」按钮——点击即置 `session_id`、
+   清空报告缓存并跳报告页，**复用现有报告渲染**（雷达图/维度条/证据/下载），不新写一套展示。
+2. **复练提升率**：仓储 `list_train_all_attempts(username)`（按 `attempt_id` 升序）取全量作答，纯函数
+   `compute_retrain_stats` 聚合：对每题，某次「非 good」之后仍有新作答 → 记一次**复练**；其中最近一次转为 good
+   → 记一次**提升**，`improvement_rate = 提升 / 复练`（无复练为 0）。挂在 `GET /train/history` 的新字段
+   `retrain_stats`，前端在「最近作答记录」区展示。**零 LLM**——纯存量聚合，不新增任何模型调用。
+
+**实测**：`uv run pytest -q -m "not integration"` → **191 passed / 1 skipped**（较改动前 +4：列表排序与报告标记、
+复练提升率数学与边界、前端历史回看点开报告、训练页提升率展示）；`ruff check` 全过；`check_eval_gate.py` 退出码 0。
+线上以 `GET /sessions` 返回列表、`GET /train/history` 返回 `retrain_stats` 字段实测确认。
+
+**取舍**：历史记录做在**开始页折叠区**而非新增独立页——两次点击即可回看，且不牺牲首屏折叠线；复练提升率挂在
+现有 `history` 接口的**新字段**而非新接口——数据同源、零额外请求，也避免为「展示一个比例」多开一个端点（过度工程）。
 
 ## 7. 关键设计取舍
 
