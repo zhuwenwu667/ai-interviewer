@@ -25,6 +25,7 @@ from app.api.schemas import (
     MessageRecord,
     SessionRecord,
     SessionStatus,
+    TrainAttemptRecord,
 )
 
 _SCHEMA = """
@@ -54,6 +55,17 @@ CREATE TABLE IF NOT EXISTS states (
 CREATE TABLE IF NOT EXISTS reports (
     session_id  TEXT PRIMARY KEY REFERENCES sessions(session_id),
     report_json TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS train_attempts (
+    attempt_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    question    TEXT NOT NULL,
+    answer      TEXT NOT NULL,
+    quality     TEXT NOT NULL,
+    feedback    TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
 """
@@ -224,3 +236,64 @@ class SessionRepository:
                 "SELECT report_json FROM reports WHERE session_id = ?", (session_id,)
             ).fetchone()
         return InterviewReport.from_json(row["report_json"]) if row else None
+
+    # ------------------------------------------------------------------
+    # 训练模式作答记录（train_attempts）
+    # ------------------------------------------------------------------
+    def add_train_attempt(
+        self,
+        username: str,
+        question_id: str,
+        source: str,
+        question: str,
+        answer: str,
+        quality: str,
+        feedback: str,
+    ) -> TrainAttemptRecord:
+        now = _utcnow()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO train_attempts"
+                " (username, question_id, source, question, answer, quality, feedback, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, question_id, source, question, answer, quality, feedback, _iso(now)),
+            )
+            attempt_id = cursor.lastrowid
+        return TrainAttemptRecord(
+            attempt_id=attempt_id,
+            question_id=question_id,
+            question=question,
+            answer=answer,
+            quality=quality,
+            feedback=feedback,
+            created_at=now,
+        )
+
+    def list_train_attempts(self, username: str, limit: int = 50) -> list[TrainAttemptRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM train_attempts WHERE username = ?"
+                " ORDER BY attempt_id DESC LIMIT ?",
+                (username, limit),
+            ).fetchall()
+        return [
+            TrainAttemptRecord(
+                attempt_id=row["attempt_id"],
+                question_id=row["question_id"],
+                question=row["question"],
+                answer=row["answer"],
+                quality=row["quality"],
+                feedback=row["feedback"],
+                created_at=_parse(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def list_train_done_question_ids(self, username: str) -> set[str]:
+        """该用户已作答过的不同 question_id（抽题排除用）。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT question_id FROM train_attempts WHERE username = ?",
+                (username,),
+            ).fetchall()
+        return {row["question_id"] for row in rows}

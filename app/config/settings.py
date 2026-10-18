@@ -94,6 +94,16 @@ class Settings(BaseSettings):
     llm_input_price_per_m: float = 2.0  # 输入单价：元 / 百万 token（deepseek-chat 缓存未命中）
     llm_output_price_per_m: float = 8.0  # 输出单价：元 / 百万 token
 
+    # ---------- 训练模式（刷题练习：单账号入口，与模拟面试隔离）----------
+    # 凭据只认 scrypt 哈希（用 `uv run python -m app.train.auth <密码>` 生成），严禁明文；
+    # 三要素任一为空时训练接口整体不可用（503 TRAIN_NOT_CONFIGURED）。
+    train_username: str = ""
+    train_password_hash: str = ""
+    train_token_secret: str = ""  # HMAC 签名密钥（随机长串，与任何面试/session 标识无关）
+    train_token_ttl_seconds: int = 3600  # 令牌有效期，过期需重新登录
+    train_login_rate_per_minute: int = 10  # 登录接口每 IP 每分钟尝试上限（防爆破）
+    train_qa_dir: Path = Field(default=Path("./data/knowledge/qa"))  # 训练题库目录（qa 八股）
+
     # ---------- 切块 ----------
     chunk_size: int = 500
     chunk_overlap: int = 80

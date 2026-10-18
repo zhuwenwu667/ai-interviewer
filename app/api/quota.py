@@ -210,6 +210,16 @@ class QuotaManager:
             return self._rate.check(client_key)
         return QuotaDecision(True)
 
+    def check_rate_only(self, client_key: str) -> QuotaDecision:
+        """只查每 IP 限速，不查成本熔断。
+
+        用于「不消耗 LLM 但仍需防刷」的接口（如训练抽题）：额度熔断不该误伤
+        不花钱的读取，但题库也不能被无限制抓取。
+        """
+        if self._rate is not None:
+            return self._rate.check(client_key)
+        return QuotaDecision(True)
+
     def record_usage(self, prompt_tokens: int, completion_tokens: int) -> None:
         """LLM 用量回调（由 ``DeepSeekChatClient`` 每次调用后触发）。"""
         if self._budget is not None:

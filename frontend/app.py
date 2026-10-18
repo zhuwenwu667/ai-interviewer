@@ -19,13 +19,15 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 允许 frontend 内部模块导入
 
+import views_train  # noqa: E402
+
 import views_interview  # noqa: E402
 import views_report  # noqa: E402
 import views_start  # noqa: E402
 from api_client import DEFAULT_BASE_URL, ApiClientError, BackendClient  # noqa: E402
 from ui_common import clear_error, render_error_banner  # noqa: E402
 
-PAGE_LABELS = {"start": "开始面试", "interview": "面试进行中", "report": "评估报告"}
+PAGE_LABELS = {"start": "开始面试", "train": "刷题训练", "interview": "面试进行中", "report": "评估报告"}
 VALID_VIEWS = tuple(PAGE_LABELS)
 
 # 全局样式：收窄内容宽度，并给 Hero 与诊断卡片定版式。
@@ -91,6 +93,7 @@ def _build_client() -> BackendClient:
         st.session_state["base_url"],
         deepseek_key=st.session_state["deepseek_key"],
         siliconflow_key=st.session_state["siliconflow_key"],
+        train_token=st.session_state.get("train_token", ""),
     )
 
 
@@ -111,7 +114,7 @@ def _restore_from_url(client: BackendClient) -> None:
             st.query_params.clear()  # 会话已不存在：清掉失效链接，静默回到开始页
             return
         st.session_state["session_id"] = session_id
-    if view in VALID_VIEWS and (view == "start" or st.session_state["session_id"]):
+    if view in VALID_VIEWS and (view in ("start", "train") or st.session_state["session_id"]):
         st.session_state["page"] = view
 
 
@@ -147,7 +150,7 @@ def _render_sidebar() -> None:
         st.title("AI 模拟面试官")
         st.caption("简历 / JD 驱动出题 · 每道题都可溯源")
 
-        options = ["start"]
+        options = ["start", "train"]
         if st.session_state["session_id"]:
             options += ["interview", "report"]
         if st.session_state["page"] not in options:
@@ -201,6 +204,8 @@ def main() -> None:
     page = st.session_state["page"]
     if page == "start":
         views_start.render(client)
+    elif page == "train":
+        views_train.render(client)
     elif page == "interview":
         views_interview.render(client)
     else:

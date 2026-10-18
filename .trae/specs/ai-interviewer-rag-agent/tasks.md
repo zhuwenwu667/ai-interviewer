@@ -689,6 +689,73 @@
   - `rule` TR-21.2: 当日 token 或成本达上限即 `503 BUDGET_EXHAUSTED`；跨日自动重置；熔断判定优先于限速。
   - `rule` TR-21.3: 开关关闭时恒放行；HTTP 集成下「花钱接口」受限、「只读 `GET /quota`」不受限，快照 shape 稳定。
 
+## Task 22: 训练模式——单账号刷题练习与进度追踪（作品集增强）
+
+- **Status**: completed
+- **Completion Evidence**:
+  - **实现**：
+    - `app/agent/assess.py`（新建）：从 `graph.py` 抽出研判 prompt 与解析逻辑
+      （`ASSESS_SYSTEM` / `ASSESS_USER` / `parse_assess_verdict` / `QUALITY_SCORE`），作为面试与训练
+      **唯一研判事实源**，防两处 prompt 漂移；`graph.py` 改为导入（5 处引用替换）。
+    - `app/train/auth.py`（新建）：`hash_password` / `verify_password`（scrypt，N=2^14/r=8/p=1，随机盐，
+      格式 `scrypt$N$r$p$salt_hex$hash_hex`，`hmac.compare_digest` 防时序侧信道）；
+      `issue_token` / `verify_token`（HMAC-SHA256 无状态令牌 `trn1.<b64url(payload)>.<b64url(sig)>`，
+      payload 含 `scope="train"` + `exp`，与面试 session_id 零命名空间重叠）。
+    - `app/train/questions.py`（新建）：解析题库 Markdown（`## Q01: 题干` + `- tags:` + `- 答案要点：`），
+      `question_id = <文件名>#<Q编号>`；`draw(exclude_ids)` 优先排除已答、全答完回退全量随机
+      （`random.SystemRandom`）；模块级缓存单例。
+    - `app/api/train.py`（新建）：`POST /train/login`（专用登录限速防爆破；未配置三要素 → 503
+      `TRAIN_NOT_CONFIGURED`；错凭据 → 401 `TRAIN_AUTH_FAILED`）、`POST /train/next`
+      （鉴权 + `check_rate_only` 防抓题、不查熔断，响应**不含答案要点**）、`POST /train/answer`
+      （鉴权 + `enforce_quota`；研判用共享 ASSESS prompt、evidence=答案要点；落库 `train_attempts`）、
+      `GET /train/history`（最近作答 + 已练/总数 + 质量分布）。
+    - `app/api/quota.py`：`QuotaManager` 新增 `check_rate_only(client_key)`（只查每 IP 限速不查成本熔断）。
+    - `app/storage/db.py`：新增 `train_attempts` 表（attempt_id/username/question_id/source/question/
+      answer/quality/feedback/created_at）+ `add_train_attempt` / `list_train_attempts` /
+      `list_train_done_question_ids`。
+    - `app/config/settings.py`：新增 `train_username` / `train_password_hash` / `train_token_secret` /
+      `train_token_ttl_seconds=3600` / `train_login_rate_per_minute=10` / `train_qa_dir`；
+      `.env.example` 补配置块与生成命令、明文 HTTP 警告。
+    - 前端：`frontend/api_client.py` 加 `train_token` 与四个 train 方法（Bearer 头）；
+      `frontend/views_train.py`（新建）登录表单 → 抽题 → 作答 → 评分徽标（🟢/🟡/🔴）+ st.info 点评 +
+      折叠参考答案要点 + 进度 metric/覆盖率 + 历史列表；401 自动清令牌回登录态；
+      `frontend/app.py` 导航加「刷题训练」页（无 session 也可进入）。
+  - **单测**：新建 `tests/test_train.py`（12 例）：哈希往返/错密码/非法格式、令牌签发/过期/篡改/错密钥/
+    面试 ID 不可冒充、题库解析与抽题排除回退、API 全链路（login→next→answer→history）、next 不含要点、
+    未配置 503、错口令/无令牌 401、未知题 404、预算熔断 answer 503、登录限速 429、仓储层 CRUD；
+    `tests/test_frontend.py` 新增 2 例（登录→作答全链路；401 回登录态）。
+    `uv run pytest -q -m "not integration"` → **178 passed / 1 skipped**（含集成共 182）；
+    `ruff check app tests scripts frontend` → All checks passed；
+    `uv run python scripts/check_eval_gate.py` → 退出码 0。
+  - **文档回写**：README 新增 §6.9、§4 目录补 train/ 与 views_train、§5 接口表加 4 行、§7 加两条取舍、
+    单测数 164→178；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
+    `.env.example` 补训练模式配置块。
+- **Progress Notes**（实现要点存档）:
+  - **单账号 + 无状态令牌而非注册体系**：训练模式是个人刷题工具，多用户注册/邮箱验证属过度工程；
+    凭据走 `.env`（scrypt 哈希，不明文），令牌 HMAC 签名免服务端会话存储，重启不丢登录态。
+  - **抽共享研判 prompt 而非各写一份**：训练与面试「评价口径必须一致」是硬约束，抽 `assess.py`
+    作唯一事实源，未来调 prompt 只改一处；训练侧研判失败**不沿用面试的默认 good 兜底**而直接抛错——
+    训练场景答错没有后续追问补救，错评比报错更糟。
+  - **答案要点只在作答后下发**：`/train/next` 响应绝不含要点（`TrainQuestionView` 模型层面就没有该字段），
+    防泄题也防有人把接口当免费 LLM 代理套答案。
+  - **分层限速**：login 专用限速防爆破 → next 用 `check_rate_only` 防抓题但不查熔断（抽题不花 LLM 钱，
+    不该被全局熔断误伤）→ answer 挂 `enforce_quota` 完整防护（研判是真金白银的 LLM 调用）。
+  - **题库直取不依赖 Qdrant**：`question_bank` 直接解析 Markdown 文件，无向量库环境（CI、轻量部署）也能跑。
+- **Priority**: high
+- **Depends On**: Task 21
+- **Description**:
+  - 与模拟面试分离的单账号刷题练习：scrypt 校验 + HMAC 短期令牌登录（凭据走 .env），从题库抽取
+    自带答案要点的八股题，作答后复用面试同口径 DeepSeek 研判给 good/partial/poor 与点评，
+    `train_attempts` 表落库支撑进度追踪；接口鉴权 + 分层限速防公网额度滥用。
+- **Acceptance Criteria Addressed**: AC-8, AC-12
+- **Test Requirements**:
+  - `rule` TR-22.1: 凭据校验（scrypt 往返/错密码/非法格式）与令牌（签发/过期/篡改/错密钥/面试 ID 不可冒充）
+    全部通过；未配置三要素时 login 返回 503 `TRAIN_NOT_CONFIGURED`。
+  - `rule` TR-22.2: `/train/next` 排除该用户已答题（全答完回退全量随机）且响应不含答案要点；
+    `/train/answer` 对未知题返回 404，研判失败不兜底放行；作答落库 `train_attempts` 且 history 统计正确。
+  - `rule` TR-22.3: 无令牌/错口令 401；登录专用限速超限 429；`/train/answer` 受全局预算熔断 503；
+    前端登录→作答全链路与 401 自动回登录态可复现。
+
 ## 任务依赖与建议排期
 
 | 日 | 任务 |
@@ -709,3 +776,4 @@
 | D15 | Task 19（作品集增强 P2-①：语义缓存降低重复出题延迟/成本/ token） |
 | D16 | Task 20（作品集增强 P2-②：上下文预算压缩 token 与成本） |
 | D17 | Task 21（作品集增强 P2-③：公网限速与成本熔断防额度滥用） |
+| D18 | Task 22（训练模式：单账号刷题练习与进度追踪） |

@@ -13,7 +13,8 @@ import json
 import httpx
 import pytest
 
-from app.agent.graph import InterviewEngine, _parse_assess, _parse_question
+from app.agent.assess import parse_assess_verdict
+from app.agent.graph import InterviewEngine, _parse_question
 from app.api.schemas import InterviewReport
 from app.config.settings import Settings
 from app.core.llm import DeepSeekChatClient
@@ -134,8 +135,8 @@ def test_parse_question_validation_and_fallback():
 
 
 def test_parse_assess_fallback_default_good():
-    assert _parse_assess(_assess_json("partial", "x", "F"))["quality"] == "partial"
-    bad = _parse_assess("无法解析@@")
+    assert parse_assess_verdict(_assess_json("partial", "x", "F"))["quality"] == "partial"
+    bad = parse_assess_verdict("无法解析@@")
     assert bad["quality"] == "good" and bad["followup_question"] == ""
 
 

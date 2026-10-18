@@ -100,12 +100,13 @@ app/
   config/        集中配置（pydantic-settings，启动期校验、密钥不入日志）
   core/          LLM / Embedding / Reranker 客户端 + 统一异常与重试
   rag/           loader / chunker / ingestion / bm25 / fusion(RRF) / rewrite / retriever / adaptive
-  agent/         LangGraph 图与节点（graph.py）+ 状态（state.py）+ 报告（report.py）
-  api/           health / sessions（SSE）/ schemas / deps / errors
+  agent/         LangGraph 图与节点（graph.py）+ 状态（state.py）+ 报告（report.py）+ 研判共享（assess.py）
+  train/         训练模式（auth：scrypt + HMAC 令牌；questions：题库解析与抽题）
+  api/           health / sessions（SSE）/ train（刷题练习）/ quota（限速熔断）/ schemas / deps / errors
   storage/       qdrant_store（向量库访问层）+ db（SQLite）
   observability/ tracer + Langfuse sink + JSONL sink
   eval/          dataset / runner / generator / refusal / metrics_ragas / report
-frontend/        Streamlit：app.py + api_client + ui_common + views_{start,interview,report}
+frontend/        Streamlit：app.py + api_client + ui_common + views_{start,train,interview,report}
 scripts/         check_models.py / ingest_kb.py / run_eval.py
 data/            knowledge（简历/JD/题库）、eval（评测集与报告）、reports
 tests/           离线单测 + 集成测试（-m integration）
@@ -122,6 +123,10 @@ deploy/          deploy.sh（Linux 一键部署）
 | `POST` | `/sessions/{id}/finish` | 提前结束并生成报告；已结束会话幂等返回既有报告 |
 | `GET` | `/sessions/{id}` | 会话详情 + 消息列表 |
 | `GET` | `/sessions/{id}/report` | 获取报告；未生成返回 404 `REPORT_NOT_FOUND` |
+| `POST` | `/train/login` | 训练模式登录（单账号，scrypt 校验）；返回短期 Bearer 令牌（`trn1.` 前缀） |
+| `POST` | `/train/next` | 抽一道训练题（排除该用户已答过的；响应**不含答案要点**）；需令牌 |
+| `POST` | `/train/answer` | 提交作答 → 与面试同口径研判（good/partial/poor）+ 参考答案要点；需令牌，挂配额门禁 |
+| `GET` | `/train/history` | 最近作答记录 + 进度统计（已练题数 / 题库总数 / 质量分布）；需令牌 |
 
 **SSE 事件**：`stage`（阶段推进，含轮次）、`token`（面试官文本增量）、`done`（本轮结束，`error` 时标注）、`error`（中文可读错误码，不断开连接）。
 
@@ -286,7 +291,7 @@ uv run python scripts/check_eval_gate.py --max-drop 0.001   # → 未通过 ❌�
 ```
 
 CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项目/1/.github/workflows/ci.yml)（push / PR 触发，**全程无密钥**）：
-`ruff check` → `pytest -m "not integration"`（164 passed / 1 skipped）→ `check_eval_gate.py`。
+`ruff check` → `pytest -m "not integration"`（178 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 6.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -384,6 +389,35 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
 > 复现：`RATE_LIMIT_PER_MINUTE=3 COST_BUDGET_ENABLED=false uv run uvicorn app.main:app --port 8011`
 > 后用 curl 连打 `POST /sessions`；熔断可设 `DAILY_TOKEN_BUDGET=0` 起服务后直接验证 503。
 
+### 6.9 训练模式：与面试隔离的单账号刷题练习（2026-10-18）
+
+**问题**：模拟面试是「整场简历驱动」的重流程，但日常更需要**碎片化的题库八股刻意练习**；
+直接复用面试会话练题会污染会话数据与成本统计，且练习入口开在公网上必须有独立的鉴权与滥用防护。
+
+**做法**：独立的 `/train/*` 命名空间 + 独立凭证体系，**不碰** LangGraph 状态机：
+
+1. **单账号登录**（不做注册体系）：`TRAIN_USERNAME` + `TRAIN_PASSWORD_HASH`（scrypt，盐随机，
+   `uv run python -m app.train.auth <密码>` 生成）走 `.env`；登录返回 **HMAC-SHA256 无状态短期令牌**
+   （`trn1.` 前缀 + `scope="train"` + 过期时间），与面试 `session_id` 零命名空间重叠、不可互换。
+2. **题库直取**：解析 `data/knowledge/qa/*.md`（每题一个 `## Qxx` 二级标题 + tags + 答案要点），
+   不依赖向量库；`next` 响应**绝不下发答案要点**，作答提交后才返回——客户端也无法把
+   `answer` 接口当成「免费 LLM 代理」评任意文本（题目只从服务端题库取）。
+3. **评价与面试同源**：研判 prompt 与解析抽取为 `app/agent/assess.py` 唯一事实源，面试状态机与
+   训练接口共用，「同一份回答在两种模式下评价口径一致」有结构性保证（防日后两份 prompt 漂移）。
+4. **滥用防护分层**：login 专用限速（默认 10 次/分/IP，防爆破）→ next 每 IP 限速（防题库抓取，
+   不查成本熔断以免误伤）→ answer 是**唯一耗 LLM** 的接口，挂 §6.8 的 `enforce_quota`（熔断 + 限速）。
+5. **进度追踪**：`train_attempts` 表落库每次作答（题目/答案/quality/feedback），前端展示
+   「已练 X/总 Y + 覆盖率进度条 + good/partial/poor 分布 + 最近作答记录」。
+
+**实测（离线单测 + AppTest 前端全链路；2026-10-18）**：`tests/test_train.py` 12 例覆盖
+哈希往返/篡改/过期、题库解析、抽题排除、login→next→answer→history 全链路、未配置 503、
+错口令 401、未知题 404、**预算熔断时 answer 503**、登录限速 429；`tests/test_frontend.py` 新增
+2 例（登录→作答→研判+要点展示、401 自动回登录态）。`uv run pytest -q -m "not integration"`
+→ **178 passed / 1 skipped**；`ruff check` 全过；`check_eval_gate.py` 退出码 0。
+
+> ⚠️ 公网当前为明文 HTTP：训练密码会明文传输，**务必独立设置、严禁与任何其他场景复用**
+> （`.env.example` 中有同样提醒）；令牌默认 1 小时过期，前端只存浏览器会话内存。
+
 ## 7. 关键设计取舍
 
 - **为何混合检索（向量 + BM25 + RRF）**：Embedding 是语义模糊匹配，对错误码、型号、专有名词等
@@ -429,6 +463,12 @@ CI 工作流 [.github/workflows/ci.yml](file:///c:/Users/50453/Desktop/面试项
   （与 §6.6 复用 Qdrant 的取舍同源）。同时把限速**只挂在会花钱的接口**上、熔断做成**全局跨客户端**：
   前者避免误伤只读浏览，后者保护的是「账号额度」而非「单用户公平性」——单个用户能被限速挡住，
   但聚合流量仍需一个总量闸门。
+- **为何训练模式「单账号 + 无状态令牌」而非注册体系**：练习入口的使用者就是项目作者本人（外加少数
+  被分享凭据的面试官），单账号已覆盖场景；引入用户表/注册/找回密码是把练手功能做成产品后台的过度工程。
+  安全取舍落在**凭据只存 scrypt 哈希、令牌短期过期、与面试 session 隔离、登录限速防爆破**四件事上（§6.9）。
+- **为何训练研判「抽共享 prompt」而非各写一份**：面试与训练若各持一份研判 prompt，评价口径必然随时间
+  漂移（改一处忘另一处）。抽取 `app/agent/assess.py` 唯一事实源后，两种模式的评价一致性是**结构保证**
+  而非约定——这也是「训练分数能与面试报告分数对照解读」的前提。
 
 ## 8. 测试与代码质量
 
@@ -447,7 +487,7 @@ uv run python scripts/measure_context_budget.py --sessions 6 --questions 6   # �
 > **无需任何密钥**，push / PR 即触发（详见 §6.5）。
 
 - 离线单测覆盖配置校验、切块/加载、RRF、检索改写开关、自适应循环、图路由、持久化、
-  报告渲染、观察性与评测聚合；集成测试用 `-m integration` 标记，与离线用例分离。
+  报告渲染、观察性与评测聚合、训练模式（认证/题库/接口/前端页）；集成测试用 `-m integration` 标记，与离线用例分离。
 - 覆盖率配置见 `pyproject.toml` 的 `[tool.coverage.*]`；核心工具模块均 **≥70%**
   （chunker、RRF、状态路由、schemas、storage、adaptive）。
 

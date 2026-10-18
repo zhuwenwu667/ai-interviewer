@@ -45,12 +45,14 @@ class BackendClient:
         *,
         deepseek_key: str = "",
         siliconflow_key: str = "",
+        train_token: str = "",
         timeout: float = 30.0,
         stream_timeout: float = 600.0,
     ) -> None:
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self._deepseek_key = deepseek_key.strip()
         self._siliconflow_key = siliconflow_key.strip()
+        self._train_token = train_token.strip()
         self._timeout = timeout
         self._stream_timeout = stream_timeout
 
@@ -64,6 +66,13 @@ class BackendClient:
             headers[DEEPSEEK_KEY_HEADER] = self._deepseek_key
         if self._siliconflow_key:
             headers[SILICONFLOW_KEY_HEADER] = self._siliconflow_key
+        return headers
+
+    @property
+    def _train_headers(self) -> dict[str, str]:
+        headers = dict(self._headers)
+        if self._train_token:
+            headers["Authorization"] = f"Bearer {self._train_token}"
         return headers
 
     def _parse_error(self, resp: httpx.Response) -> ApiClientError:
@@ -176,3 +185,37 @@ class BackendClient:
     def get_report(self, session_id: str) -> dict:
         """GET /sessions/{id}/report → InterviewReport（未生成时抛 404 ApiClientError）。"""
         return self._get_json(f"/sessions/{session_id}/report")
+
+    # ------------------------------------------------------------------
+    # 训练模式（/train/*，Bearer 令牌鉴权）
+    # ------------------------------------------------------------------
+    def _request_json(self, method: str, path: str, **kwargs) -> dict:
+        """训练接口的公共请求封装：统一错误解析与连接异常翻译。"""
+        try:
+            with httpx.Client(timeout=self._timeout, headers=self._train_headers) as client:
+                resp = client.request(method, f"{self.base_url}{path}", **kwargs)
+        except httpx.HTTPError as exc:
+            raise ApiClientError(f"无法连接后端（{self.base_url}）：{exc}") from exc
+        if resp.status_code >= 400:
+            raise self._parse_error(resp)
+        return resp.json()
+
+    def train_login(self, username: str, password: str) -> dict:
+        """POST /train/login → {token, token_type, expires_in}。"""
+        return self._request_json(
+            "POST", "/train/login", json={"username": username, "password": password}
+        )
+
+    def train_next(self) -> dict:
+        """POST /train/next → {question: {question_id, question, tags, source}, done_count, total_count}。"""
+        return self._request_json("POST", "/train/next")
+
+    def train_answer(self, question_id: str, answer: str) -> dict:
+        """POST /train/answer → {attempt_id, quality, feedback, reference_points}。"""
+        return self._request_json(
+            "POST", "/train/answer", json={"question_id": question_id, "answer": answer}
+        )
+
+    def train_history(self) -> dict:
+        """GET /train/history → {attempts, done_count, total_count, quality_counts}。"""
+        return self._request_json("GET", "/train/history")

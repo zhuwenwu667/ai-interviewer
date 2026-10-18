@@ -21,7 +21,7 @@ from streamlit.testing.v1 import AppTest
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 sys.path.insert(0, str(FRONTEND_DIR))  # 前端模块以脚本目录为根导入
 
-from api_client import BackendClient, SseEventLite  # noqa: E402
+from api_client import ApiClientError, BackendClient, SseEventLite  # noqa: E402
 
 FRONTEND_APP = FRONTEND_DIR / "app.py"
 
@@ -132,6 +132,45 @@ def stub_backend(monkeypatch) -> dict:
     monkeypatch.setattr(BackendClient, "post_message", post_message)
     monkeypatch.setattr(BackendClient, "get_report", get_report)
     monkeypatch.setattr(BackendClient, "finish", lambda self, sid: REPORT)
+
+    # 训练模式桩（Task 22）：登录 / 抽题 / 作答 / 历史
+    def train_login(self, username: str, password: str) -> dict:
+        if password != "train-pass":  # noqa: S105 - 测试口令
+            raise ApiClientError("用户名或密码错误", code="TRAIN_AUTH_FAILED", status=401)
+        return {"token": "trn1.test-token", "token_type": "Bearer", "expires_in": 3600}
+
+    def train_next(self) -> dict:
+        return {
+            "question": {
+                "question_id": "bank.md#Q01", "question": "什么是 GIL？",
+                "tags": ["python", "并发"], "source": "bank.md",
+            },
+            "done_count": 0, "total_count": 40,
+        }
+
+    def train_answer(self, question_id: str, answer: str) -> dict:
+        return {
+            "attempt_id": 1, "quality": "partial",
+            "feedback": "答到了全局锁，但多进程规避没说清。",
+            "reference_points": ["全局解释器锁，同一时刻只有一个线程执行字节码。", "CPU 密集用多进程绕过。"],
+        }
+
+    def train_history(self) -> dict:
+        return {
+            "attempts": [
+                {
+                    "attempt_id": 1, "question_id": "bank.md#Q01", "question": "什么是 GIL？",
+                    "answer": "GIL 是全局锁。", "quality": "partial",
+                    "feedback": "答到了全局锁。", "created_at": "2026-10-18T10:00:00+00:00",
+                }
+            ],
+            "done_count": 1, "total_count": 40, "quality_counts": {"partial": 1},
+        }
+
+    monkeypatch.setattr(BackendClient, "train_login", train_login)
+    monkeypatch.setattr(BackendClient, "train_next", train_next)
+    monkeypatch.setattr(BackendClient, "train_answer", train_answer)
+    monkeypatch.setattr(BackendClient, "train_history", train_history)
     return state
 
 
@@ -216,3 +255,68 @@ def test_report_page_renders_charts_evidence_and_download(stub_backend):
     assert "缓存穿透/击穿/雪崩" in cells, "推荐知识点应回链题库来源"
     assert "qa_backend.md" in cells
     assert at.download_button, "应提供报告下载按钮"
+
+
+# ---------------------------------------------------------------------------
+# 训练模式页（Task 22）：登录 → 抽题 → 作答 → 研判 + 答案要点 → 历史
+# ---------------------------------------------------------------------------
+def _goto_train(at: AppTest) -> None:
+    at.session_state["requested_page"] = "train"
+    at.run()
+
+
+def test_train_page_login_then_answer_flow(stub_backend):
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _goto_train(at)
+    assert not at.exception
+
+    # 登录态前：渲染登录表单
+    labels = [t.label for t in at.text_input]
+    assert "用户名" in labels and "密码" in labels
+
+    # 错密码：错误原文透出（错误横幅在下一轮渲染上屏）
+    at.text_input[0].set_value("trainee")
+    at.text_input[1].set_value("wrong-pass")
+    _button(at, "登录并开始刷题").click().run()
+    at.run()
+    errors = [e.value for e in at.error]
+    assert any("用户名或密码错误" in e and "TRAIN_AUTH_FAILED" in e for e in errors)
+
+    # 正确口令：登录成功 → 自动抽题渲染（含进度与考点标签）
+    at.text_input[1].set_value("train-pass")
+    _button(at, "登录并开始刷题").click().run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "什么是 GIL？" in text, "登录后应渲染抽到的题目"
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["已练习题数"] == "0 / 40"
+
+    # 作答 → 提交 → 研判结论 + 参考答案要点
+    at.text_area[0].set_value("GIL 是全局解释器锁。")
+    at.run()
+    _button(at, "提交作答").click().run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "部分掌握" in text
+    infos = "\n".join(i.value for i in at.info)
+    assert "多进程规避没说清" in infos, "研判点评应经 st.info 透出"
+    assert "全局解释器锁，同一时刻只有一个线程执行字节码。" in text, "作答后应展示参考答案要点"
+    assert _button(at, "下一题"), "研判后应提供下一题按钮"
+
+
+def test_train_page_401_falls_back_to_login(stub_backend, monkeypatch):
+    def expired_next(self) -> dict:
+        raise ApiClientError("训练令牌无效或已过期，请重新登录", code="TRAIN_UNAUTHORIZED", status=401)
+
+    monkeypatch.setattr(BackendClient, "train_next", expired_next)
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _goto_train(at)
+    at.text_input[0].set_value("trainee")
+    at.text_input[1].set_value("train-pass")
+    _button(at, "登录并开始刷题").click().run()
+    assert not at.exception
+    # 401 后清令牌回到登录表单
+    labels = [t.label for t in at.text_input]
+    assert "用户名" in labels and "密码" in labels
+    errors = [e.value for e in at.error]
+    assert any("重新登录" in e for e in errors)

@@ -25,6 +25,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agent.assess import ASSESS_SYSTEM, ASSESS_USER, QUALITY_SCORE, parse_assess_verdict
 from app.agent.context import ContextBudget
 from app.agent.state import InterviewState, initial_state
 from app.api.schemas import (
@@ -59,15 +60,6 @@ _ASK_SYSTEM = (
 )
 _ASK_USER = "证据片段：\n{evidence}\n\n已问过的问题：\n{asked}\n\n请出题。"
 
-_ASSESS_SYSTEM = (
-    "你是技术面试官，研判候选人的回答质量。"
-    '严格输出 JSON：{{"quality": "good|partial|poor", "feedback": "一句话点评", '
-    '"followup_question": "追问问题或空字符串"}}。'
-    "quality=good 时 followup_question 为空；partial/poor 时给出一个精确针对回答漏洞、"
-    "并结合证据或简历细节的追问问题。"
-)
-_ASSESS_USER = "问题：{question}\n考察点：{focus}\n参考依据：\n{evidence}\n\n候选人回答：{answer}\n\n请研判。"
-
 EventSink = Callable[[SseEvent], Awaitable[None]]
 ReportGenerator = Callable[[InterviewState], Awaitable[InterviewReport]]
 
@@ -75,7 +67,6 @@ ReportGenerator = Callable[[InterviewState], Awaitable[InterviewReport]]
 # ---------------------------------------------------------------------------
 # 默认报告生成器（占位实现，Task 8 以 LLM 结构化生成替换）
 # ---------------------------------------------------------------------------
-_QUALITY_SCORE = {"good": 4, "partial": 3, "poor": 2}
 
 
 async def default_report_generator(state: InterviewState) -> InterviewReport:
@@ -83,7 +74,7 @@ async def default_report_generator(state: InterviewState) -> InterviewReport:
     from datetime import datetime
 
     answers = state.get("answers", [])
-    scores = [_QUALITY_SCORE.get(a.get("quality"), 3) for a in answers]
+    scores = [QUALITY_SCORE.get(a.get("quality"), 3) for a in answers]
     avg = round(sum(scores) / len(scores)) if scores else 1
     qa_evidence = [
         f"问：{a['question']} 答：{a['answer'][:80]}" for a in answers[:3]
@@ -131,23 +122,6 @@ def _parse_question(content: str, valid_ids: list[str]) -> dict[str, Any] | None
         "focus": str(data.get("focus") or "").strip(),
         "evidence_ids": ids or valid_ids[:1],  # 兜底：至少引用 Top-1 证据
     }
-
-
-def _parse_assess(content: str) -> dict[str, Any]:
-    """研判解析；失败时默认 quality=good（放行进入下一题，不中断面试）。"""
-    try:
-        data = json.loads(content)
-        quality = str(data.get("quality") or "").strip().lower()
-        if quality in _QUALITY_SCORE:
-            return {
-                "quality": quality,
-                "feedback": str(data.get("feedback") or "").strip(),
-                "followup_question": str(data.get("followup_question") or "").strip(),
-            }
-    except json.JSONDecodeError:
-        pass
-    logger.warning("研判输出无法解析，默认按 good 放行：%r", content[:120])
-    return {"quality": "good", "feedback": "研判解析失败，默认通过", "followup_question": ""}
 
 
 # ---------------------------------------------------------------------------
@@ -425,10 +399,10 @@ class InterviewEngine:
             for e in state.get("current_evidence", [])
         ) or "（无）"
         messages: list[ChatMessage] = [
-            {"role": "system", "content": _ASSESS_SYSTEM},
+            {"role": "system", "content": ASSESS_SYSTEM},
             {
                 "role": "user",
-                "content": _ASSESS_USER.format(
+                "content": ASSESS_USER.format(
                     question=current["question"],
                     focus=state["current_question"].get("focus", ""),
                     evidence=snippets,
@@ -438,7 +412,7 @@ class InterviewEngine:
         ]
         try:
             resp = await self._llm.chat(messages, purpose="eval", json_mode=True)
-            verdict = _parse_assess(resp.content)
+            verdict = parse_assess_verdict(resp.content)
         except Exception as exc:  # noqa: BLE001 - 研判失败默认放行
             logger.warning("回答研判调用失败，默认按 good 放行：%s", exc)
             verdict = {"quality": "good", "feedback": f"研判失败（{exc}），默认通过", "followup_question": ""}
@@ -503,7 +477,7 @@ class InterviewEngine:
             "quality_counts": counts,
             "avg_quality_score": (
                 round(
-                    sum(_QUALITY_SCORE[a["quality"]] for a in answers if a.get("quality") in _QUALITY_SCORE)
+                    sum(QUALITY_SCORE[a["quality"]] for a in answers if a.get("quality") in QUALITY_SCORE)
                     / max(1, sum(counts.values())),
                     2,
                 )

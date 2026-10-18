@@ -181,3 +181,63 @@ class ErrorResponse(BaseModel):
     """统一错误响应结构（全局异常处理与业务错误均输出此结构）。"""
 
     error: ErrorBody
+
+
+# ---------------------------------------------------------------------------
+# 训练模式（刷题练习，Task 22）：单账号登录 + 抽题作答 + 单轮研判 + 进度追踪
+# ---------------------------------------------------------------------------
+
+
+class TrainLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class TrainLoginResponse(BaseModel):
+    token: str
+    token_type: str = "Bearer"
+    expires_in: int = Field(description="令牌有效期（秒）")
+
+
+class TrainQuestionView(BaseModel):
+    """next 接口下发的题目视图：绝不含答案要点（作答后才可见）。"""
+
+    question_id: str
+    question: str
+    tags: list[str] = Field(default_factory=list)
+    source: str
+
+
+class TrainNextResponse(BaseModel):
+    question: TrainQuestionView
+    done_count: int = Field(ge=0, description="该用户已作答过的不同题目数")
+    total_count: int = Field(ge=0, description="题库总题数")
+
+
+class TrainAnswerRequest(BaseModel):
+    question_id: str = Field(min_length=1, max_length=300)
+    answer: str = Field(min_length=1, max_length=10000)
+
+
+class TrainAnswerResponse(BaseModel):
+    attempt_id: int
+    quality: str = Field(description="good / partial / poor（与面试研判同口径）")
+    feedback: str
+    reference_points: list[str] = Field(default_factory=list, description="题库答案要点")
+
+
+class TrainAttemptRecord(BaseModel):
+    attempt_id: int
+    question_id: str
+    question: str
+    answer: str
+    quality: str
+    feedback: str
+    created_at: datetime
+
+
+class TrainHistoryResponse(BaseModel):
+    attempts: list[TrainAttemptRecord]
+    done_count: int = Field(ge=0)
+    total_count: int = Field(ge=0)
+    quality_counts: dict[str, int] = Field(default_factory=dict)
