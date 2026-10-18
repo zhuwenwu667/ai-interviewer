@@ -86,6 +86,17 @@ _STYLES = """
     background: #F8FAFA; border: 1px solid #E8EEEE;
     border-radius: 10px; padding: 10px 14px;
   }
+
+  /* 窄屏（手机）：实测 390×844 下主按钮原落在折叠线下 54px，故收一档 Hero 排版把 CTA 拉回 */
+  @media (max-width: 480px) {
+    .block-container { padding-top: 1.0rem; }
+    .iv-hero { padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+    .iv-hero-badge { margin-bottom: 6px; }
+    .iv-hero-title { font-size: 1.5rem; margin-bottom: 0.4rem; }
+    .iv-hero-sub { font-size: 0.9rem; line-height: 1.6; margin-bottom: 0.6rem; }
+    .iv-hero-dims { gap: 6px; }
+    .iv-hero-dims li { font-size: 0.76rem; padding: 3px 8px; }
+  }
 </style>
 """
 
