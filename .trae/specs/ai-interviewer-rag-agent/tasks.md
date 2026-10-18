@@ -744,6 +744,9 @@
     docker compose 读 `.env` 时把 `$1`/`$8` 当变量展开为空，导致容器内哈希被截断为 `scrypt6384`、
     登录恒 `TRAIN_AUTH_FAILED`；修复为 `.env` 中写 `$$`（compose 转义为 `$`）后 `printenv` 验证正确。
     远端 shell 对 heredoc 内 `$$` 会展开为 PID，故含 `$` 的行一律 base64 编码写入。
+  - **reveal 增补线上验证（2026-10-18，提交 `d6e6265` 经 bundle 同步重建后）**：
+    `POST /train/reveal`（带令牌）→ 200 返回 Q11 的 4 条答案要点；无令牌 → **401**；
+    reveal 后 `GET /train/history` 的 `done_count` 仍为 1（未新增 attempt，**不落库语义线上确认**）。
 - **Progress Notes**（实现要点存档）:
   - **单账号 + 无状态令牌而非注册体系**：训练模式是个人刷题工具，多用户注册/邮箱验证属过度工程；
     凭据走 `.env`（scrypt 哈希，不明文），令牌 HMAC 签名免服务端会话存储，重启不丢登录态。
