@@ -873,6 +873,12 @@
     「最近一次质量 + 最久未练 + avoid 防连出」已达同样效果且零 LLM 成本。
   - **文档回写**：README §5 接口表更新 next 并加 mistakes 行、§6.9 增补 A1/A3、单测数 183→187；
     `docs/interview_talk.md` §5.9 增补 ⑦⑧ 与取舍、单测数同步。
+  - **服务器侧验证（2026-10-18，腾讯云 42.194.242.186，提交 `1513d0c` 经 git bundle 同步重建）**：
+    三容器重建后 api `healthy`；真实凭据登录 → `trn1.` 令牌；`POST /train/next` → `ai_backend_qa_bank.md#Q27`
+    （done/total=1/40，未作答优先）；带 `avoid_question_id=Q27` 再抽 → `Q25`（**避免连出同题线上确认**）；
+    `POST /train/answer` 提交含糊作答 → 真实 LLM 研判 `quality=poor` + 中文点评；`GET /train/mistakes` →
+    count=1、首条 `Q25 / poor / 4 条答案要点 / 我的作答原文`（**错题本线上确认**）；不带 avoid 再抽 → 仍返回 `Q25`
+    （**错题优先复练线上确认**，done/total=2/40）；无令牌 `/train/next` → 401；`/health` → 200；前端 `:8501` → 200。
 
 ## 任务依赖与建议排期
 
