@@ -83,7 +83,7 @@ Judge 可切换：`EVAL_JUDGE_MODEL / EVAL_JUDGE_BASE_URL / EVAL_JUDGE_API_KEY`�
 - 期望来源**命中率 100%**（二值），平均上下文 6.0 条，平均自适应轮数 **1.58**；
   **来源精确率 P 0.861 / 召回 R 1.000 / F1 0.907**（见 §5.4，二值命中率已饱和、无区分度）。
 - 题库外诱导题**拒答率 100%**（目标 ≥80%），非诱导题**误拒答率 0%**。
-- 工程侧：离线单测 **178 例全绿**（另 1 例因缺 `langfuse` 跳过；含集成共 182 例）、覆盖率核心模块 ≥70%；三容器部署健康检查全通过。
+- 工程侧：离线单测 **182 例全绿**（另 1 例因缺 `langfuse` 跳过；含集成共 186 例）、覆盖率核心模块 ≥70%；三容器部署健康检查全通过。
 - 注意：`answer_relevancy` 对 judge 选择较敏感（自评比异源 judge 高约 0.11，见 §5.3），
   它的绝对值当**趋势信号**看，不作为硬门槛单独宣传。
 
@@ -177,7 +177,7 @@ Judge 可切换：`EVAL_JUDGE_MODEL / EVAL_JUDGE_BASE_URL / EVAL_JUDGE_API_KEY`�
 **实测**：最新报告 `check_eval_gate.py` → 通过 ✅、退出码 0；把容忍度收到 `--max-drop 0.001`，
 立刻抓到 `context_recall 1.0000 → 0.9931`（跌 0.0069 > 0.001）→ 未通过 ❌、退出码 2——门禁真的会拦。
 CI（`.github/workflows/ci.yml`，push/PR 触发、无需密钥）：`ruff check` → `pytest -m "not integration"`
-（178 passed / 1 skipped）→ `check_eval_gate.py`。
+（182 passed / 1 skipped）→ `check_eval_gate.py`。
 
 ### 5.6 语义缓存：把重复出题的检索管线整体跳过（2026-10-18）
 
@@ -234,10 +234,13 @@ LLM 调用 **174 → 90（-48.3%）**、总 token **86847 → 59654（-31.3%）*
 （`trn1.` 前缀 + `scope="train"`，与面试 `session_id` 零命名空间重叠）；② **题库直取**（解析 `data/knowledge/qa/*.md`，
 `next` 绝不下发答案要点，作答后才返回；题目只从服务端取，answer 接口无法被当成免费 LLM 代理）；
 ③ **评价与面试同源**（研判 prompt/解析抽为 `app/agent/assess.py` 唯一事实源，两模式口径结构保证一致）；
-④ **防护分层**：login 专用限速防爆破 → next 每 IP 限速防抓题（不查熔断以免误伤）→ answer 唯一耗 LLM、
-挂 §5.8 的 `enforce_quota`；⑤ `train_attempts` 表追踪进度（已练 X/总 Y + 质量分布）。
-**实测**：`tests/test_train.py` 12 例（哈希/令牌篡改与过期、抽题排除、全链路、未配置 503、错口令 401、
-未知题 404、**熔断时 answer 503**、登录限速 429）+ AppTest 前端 2 例；离线全套 **178 passed / 1 skipped**，ruff 与评测门禁全绿。
+④ **防护分层**：login 专用限速防爆破 → next/reveal 每 IP 限速防抓题（不查熔断以免误伤）→ answer 唯一耗 LLM、
+挂 §5.8 的 `enforce_quota`；⑤ `train_attempts` 表追踪进度（已练 X/总 Y + 质量分布）；
+⑥ **答不出来有出口**：「显示答案」走 `/train/reveal` 直接下发要点——**不调 LLM、不落库**
+（看答案 ≠ 练过，不计入进度、之后仍会被抽到），看完可继续作答也可直接下一题。
+**实测**：`tests/test_train.py` 15 例（哈希/令牌篡改与过期、抽题排除、全链路、未配置 503、错口令 401、
+未知题 404、**熔断时 answer 503**、登录限速 429、reveal 零 LLM 且不落库）+ AppTest 前端 3 例；
+离线全套 **182 passed / 1 skipped**，ruff 与评测门禁全绿。
 **关键取舍**：单账号 + 无状态令牌而非注册体系（使用者就是作者本人，注册/找回密码是过度工程）；
 安全落在「凭据只存哈希、令牌短期、session 隔离、登录限速」四件事上；⚠️ 公网明文 HTTP 下训练密码独立设置不复用。
 

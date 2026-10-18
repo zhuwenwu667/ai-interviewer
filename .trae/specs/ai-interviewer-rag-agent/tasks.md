@@ -708,6 +708,7 @@
       `TRAIN_NOT_CONFIGURED`；错凭据 → 401 `TRAIN_AUTH_FAILED`）、`POST /train/next`
       （鉴权 + `check_rate_only` 防抓题、不查熔断，响应**不含答案要点**）、`POST /train/answer`
       （鉴权 + `enforce_quota`；研判用共享 ASSESS prompt、evidence=答案要点；落库 `train_attempts`）、
+      `POST /train/reveal`（鉴权 + `check_rate_only`；**不调 LLM、不落库**——看答案 ≠ 练过，不计入进度）、
       `GET /train/history`（最近作答 + 已练/总数 + 质量分布）。
     - `app/api/quota.py`：`QuotaManager` 新增 `check_rate_only(client_key)`（只查每 IP 限速不查成本熔断）。
     - `app/storage/db.py`：新增 `train_attempts` 表（attempt_id/username/question_id/source/question/
@@ -716,19 +717,21 @@
     - `app/config/settings.py`：新增 `train_username` / `train_password_hash` / `train_token_secret` /
       `train_token_ttl_seconds=3600` / `train_login_rate_per_minute=10` / `train_qa_dir`；
       `.env.example` 补配置块与生成命令、明文 HTTP 警告。
-    - 前端：`frontend/api_client.py` 加 `train_token` 与四个 train 方法（Bearer 头）；
-      `frontend/views_train.py`（新建）登录表单 → 抽题 → 作答 → 评分徽标（🟢/🟡/🔴）+ st.info 点评 +
+    - 前端：`frontend/api_client.py` 加 `train_token` 与五个 train 方法（Bearer 头）；
+      `frontend/views_train.py`（新建）登录表单 → 抽题 → 作答（**含「显示答案」按钮**：reveal 下发要点，
+      看完可继续作答或直接下一题）→ 评分徽标（🟢/🟡/🔴）+ st.info 点评 +
       折叠参考答案要点 + 进度 metric/覆盖率 + 历史列表；401 自动清令牌回登录态；
       `frontend/app.py` 导航加「刷题训练」页（无 session 也可进入）。
-  - **单测**：新建 `tests/test_train.py`（12 例）：哈希往返/错密码/非法格式、令牌签发/过期/篡改/错密钥/
+  - **单测**：`tests/test_train.py`（15 例）：哈希往返/错密码/非法格式、令牌签发/过期/篡改/错密钥/
     面试 ID 不可冒充、题库解析与抽题排除回退、API 全链路（login→next→answer→history）、next 不含要点、
-    未配置 503、错口令/无令牌 401、未知题 404、预算熔断 answer 503、登录限速 429、仓储层 CRUD；
-    `tests/test_frontend.py` 新增 2 例（登录→作答全链路；401 回登录态）。
-    `uv run pytest -q -m "not integration"` → **178 passed / 1 skipped**（含集成共 182）；
+    未配置 503、错口令/无令牌 401、未知题 404、预算熔断 answer 503、登录限速 429、
+    **reveal 返回答案要点且零 LLM 调用（handler 触发即失败的 MockTransport）、不落库进度为 0**、仓储层 CRUD；
+    `tests/test_frontend.py` 新增 3 例（登录→作答全链路；显示答案按钮流程；401 回登录态）。
+    `uv run pytest -q -m "not integration"` → **182 passed / 1 skipped**（含集成共 186）；
     `ruff check app tests scripts frontend` → All checks passed；
     `uv run python scripts/check_eval_gate.py` → 退出码 0。
-  - **文档回写**：README 新增 §6.9、§4 目录补 train/ 与 views_train、§5 接口表加 4 行、§7 加两条取舍、
-    单测数 164→178；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
+  - **文档回写**：README 新增 §6.9、§4 目录补 train/ 与 views_train、§5 接口表加 5 行、§7 加两条取舍、
+    单测数 164→182；`docs/interview_talk.md` 新增 §5.9、§6 下一步标记完成、单测数同步；
     `.env.example` 补训练模式配置块。
   - **服务器侧验证（2026-10-18，腾讯云轻量 42.194.242.186，提交 `b13f9db` 经 git bundle + reset 同步）**：
     `docker compose up -d --build` 重建后三容器（qdrant / api / streamlit）均 `healthy`；宿主机
@@ -766,6 +769,8 @@
     `/train/answer` 对未知题返回 404，研判失败不兜底放行；作答落库 `train_attempts` 且 history 统计正确。
   - `rule` TR-22.3: 无令牌/错口令 401；登录专用限速超限 429；`/train/answer` 受全局预算熔断 503；
     前端登录→作答全链路与 401 自动回登录态可复现。
+  - `rule` TR-22.4: `/train/reveal` 返回答案要点且全程零 LLM 调用、不落库（history 进度不变）；
+    未知题 404、无令牌 401；前端「显示答案」后可继续作答或直接下一题，进度不前进。
 
 ## 任务依赖与建议排期
 

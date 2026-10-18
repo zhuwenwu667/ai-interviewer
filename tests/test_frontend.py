@@ -155,6 +155,12 @@ def stub_backend(monkeypatch) -> dict:
             "reference_points": ["全局解释器锁，同一时刻只有一个线程执行字节码。", "CPU 密集用多进程绕过。"],
         }
 
+    def train_reveal(self, question_id: str) -> dict:
+        return {
+            "question_id": question_id,
+            "reference_points": ["全局解释器锁，同一时刻只有一个线程执行字节码。", "CPU 密集用多进程绕过。"],
+        }
+
     def train_history(self) -> dict:
         return {
             "attempts": [
@@ -170,6 +176,7 @@ def stub_backend(monkeypatch) -> dict:
     monkeypatch.setattr(BackendClient, "train_login", train_login)
     monkeypatch.setattr(BackendClient, "train_next", train_next)
     monkeypatch.setattr(BackendClient, "train_answer", train_answer)
+    monkeypatch.setattr(BackendClient, "train_reveal", train_reveal)
     monkeypatch.setattr(BackendClient, "train_history", train_history)
     return state
 
@@ -302,6 +309,25 @@ def test_train_page_login_then_answer_flow(stub_backend):
     assert "多进程规避没说清" in infos, "研判点评应经 st.info 透出"
     assert "全局解释器锁，同一时刻只有一个线程执行字节码。" in text, "作答后应展示参考答案要点"
     assert _button(at, "下一题"), "研判后应提供下一题按钮"
+
+
+def test_train_page_reveal_shows_points_without_answering(stub_backend):
+    """答不出来：点「显示答案」→ 要点展示 + 可直接下一题 + 作答入口保留 + 进度不前进。"""
+    at = AppTest.from_file(str(FRONTEND_APP), default_timeout=30).run()
+    _goto_train(at)
+    at.text_input[0].set_value("trainee")
+    at.text_input[1].set_value("train-pass")
+    _button(at, "登录并开始刷题").click().run()
+    assert not at.exception
+
+    _button(at, "显示答案").click().run()
+    assert not at.exception
+    text = "\n".join(m.value for m in at.markdown)
+    assert "全局解释器锁，同一时刻只有一个线程执行字节码。" in text, "看答案后应展示答案要点"
+    assert _button(at, "下一题"), "看答案后应可直接进入下一题"
+    assert _button(at, "提交作答"), "看答案后仍应保留作答入口（看完默写也算练）"
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["已练习题数"] == "0 / 40", "看答案不计入已练进度"
 
 
 def test_train_page_401_falls_back_to_login(stub_backend, monkeypatch):

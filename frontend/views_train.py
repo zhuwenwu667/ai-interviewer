@@ -26,6 +26,7 @@ def _init_state() -> None:
         "train_token": "",
         "train_question": None,
         "train_result": None,
+        "train_revealed": None,
         "train_stats": None,
     }.items():
         st.session_state.setdefault(key, default)
@@ -34,7 +35,9 @@ def _init_state() -> None:
 def _handle_error(exc: ApiClientError) -> None:
     """401 统一清令牌并立即 rerun 回登录态；其余错误透传 code 与中文 message。"""
     if exc.status == 401:
-        st.session_state.update(train_token="", train_question=None, train_result=None)
+        st.session_state.update(
+            train_token="", train_question=None, train_result=None, train_revealed=None
+        )
         set_error("登录已失效，请重新登录。", exc.code)
         st.rerun()
     else:
@@ -55,6 +58,7 @@ def _draw_next(client: BackendClient) -> None:
         "total_count": body["total_count"],
     }
     st.session_state["train_result"] = None
+    st.session_state["train_revealed"] = None
 
 
 def _render_login(client: BackendClient) -> None:
@@ -100,7 +104,12 @@ def _render_question(client: BackendClient) -> None:
 
     if result is None:
         answer = st.text_area("你的作答", height=180, key="train_answer_input")
-        if st.button("提交作答", type="primary", disabled=not answer.strip()):
+        cols = st.columns([2, 2, 6])
+        submitted = cols[0].button("提交作答", type="primary", disabled=not answer.strip())
+        reveal_clicked = cols[1].button(
+            "显示答案", help="答不出来时直接看答案要点；看答案不计入已练进度"
+        )
+        if submitted:
             try:
                 with st.spinner("AI 研判中…"):
                     st.session_state["train_result"] = client.train_answer(
@@ -109,8 +118,29 @@ def _render_question(client: BackendClient) -> None:
             except ApiClientError as exc:
                 _handle_error(exc)
                 return
+            st.session_state["train_revealed"] = None
             clear_error()
             st.rerun()
+        if reveal_clicked:
+            try:
+                with st.spinner("正在取答案要点…"):
+                    st.session_state["train_revealed"] = client.train_reveal(
+                        question["question_id"]
+                    )["reference_points"]
+            except ApiClientError as exc:
+                _handle_error(exc)
+                return
+            clear_error()
+            st.rerun()
+        # 已看答案：展示要点，可继续作答（看完默写也算练）或直接下一题
+        revealed = st.session_state["train_revealed"]
+        if revealed:
+            with st.expander("参考答案要点", expanded=True):
+                for point in revealed:
+                    st.markdown(f"- {point}")
+            if st.button("下一题 →", type="primary"):
+                _draw_next(client)
+                st.rerun()
         return
 
     # 作答后：研判结论 + 参考答案要点
@@ -166,6 +196,7 @@ def render(client: BackendClient) -> None:
 
     if st.button("退出训练登录"):
         st.session_state.update(
-            train_token="", train_question=None, train_result=None, train_stats=None
+            train_token="", train_question=None, train_result=None,
+            train_revealed=None, train_stats=None,
         )
         st.rerun()

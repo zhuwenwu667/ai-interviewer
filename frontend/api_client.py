@@ -216,6 +216,10 @@ class BackendClient:
             "POST", "/train/answer", json={"question_id": question_id, "answer": answer}
         )
 
+    def train_reveal(self, question_id: str) -> dict:
+        """POST /train/reveal → {question_id, reference_points}（答不出来直接看答案，不落库）。"""
+        return self._request_json("POST", "/train/reveal", json={"question_id": question_id})
+
     def train_history(self) -> dict:
         """GET /train/history → {attempts, done_count, total_count, quality_counts}。"""
         return self._request_json("GET", "/train/history")

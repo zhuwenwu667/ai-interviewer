@@ -219,6 +219,17 @@ class TrainAnswerRequest(BaseModel):
     answer: str = Field(min_length=1, max_length=10000)
 
 
+class TrainRevealRequest(BaseModel):
+    """答不出来时直接看答案要点：不消耗 LLM、不落库（看答案 ≠ 练过）。"""
+
+    question_id: str = Field(min_length=1, max_length=300)
+
+
+class TrainRevealResponse(BaseModel):
+    question_id: str
+    reference_points: list[str] = Field(default_factory=list, description="题库答案要点")
+
+
 class TrainAnswerResponse(BaseModel):
     attempt_id: int
     quality: str = Field(description="good / partial / poor（与面试研判同口径）")

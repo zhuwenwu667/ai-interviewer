@@ -5,7 +5,8 @@
   全部答完回退全量随机；
 - API：login → next → answer → history 全链路（mock LLM 与面试同口径研判）；
   未配置凭据 503、错密码 401、无令牌 401、未知题目 404、answer 挂成本熔断 503、
-  next 响应绝不泄露答案要点、next 排除已答题。
+  next 响应绝不泄露答案要点、next 排除已答题；
+  reveal 返回答案要点且零 LLM 调用、不落库（进度不前进）、未知题 404、无令牌 401。
 """
 
 from __future__ import annotations
@@ -314,6 +315,55 @@ def test_train_answer_unknown_question_404(tmp_path):
     )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "TRAIN_QUESTION_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# reveal：答不出来直接看答案要点
+# ---------------------------------------------------------------------------
+def test_train_reveal_returns_points_without_llm_or_progress(tmp_path):
+    """reveal 返回答案要点；全程零 LLM 调用（handler 触发即失败）、不落库（进度为 0）。"""
+    qa = _qa_dir(tmp_path)
+    settings = _settings(qa)
+
+    def _forbidden(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("reveal 不应触发任何 LLM 调用")
+
+    llm = DeepSeekChatClient(settings, transport=httpx.MockTransport(_forbidden))
+    client = _client(_container(settings, llm, SessionRepository(tmp_path / "t.db")))
+    token = _login(client)
+    resp = client.post(
+        "/train/reveal", headers=_auth(token), json={"question_id": "test_bank.md#Q01"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["question_id"] == "test_bank.md#Q01"
+    assert body["reference_points"] == [
+        "全局解释器锁，同一时刻只有一个线程执行字节码。",
+        "CPU 密集用多进程绕过。",
+    ]
+    # 不落库：历史为空、进度不前进
+    history = client.get("/train/history", headers=_auth(token)).json()
+    assert history["done_count"] == 0
+    assert history["attempts"] == []
+
+
+def test_train_reveal_unknown_question_404(tmp_path):
+    settings = _settings(_qa_dir(tmp_path))
+    client = _client(_container(settings, _llm(settings, []), SessionRepository(tmp_path / "t.db")))
+    token = _login(client)
+    resp = client.post(
+        "/train/reveal", headers=_auth(token), json={"question_id": "ghost.md#Q99"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "TRAIN_QUESTION_NOT_FOUND"
+
+
+def test_train_reveal_requires_token_401(tmp_path):
+    settings = _settings(_qa_dir(tmp_path))
+    client = _client(_container(settings, _llm(settings, []), SessionRepository(tmp_path / "t.db")))
+    resp = client.post("/train/reveal", json={"question_id": "test_bank.md#Q01"})
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "TRAIN_UNAUTHORIZED"
 
 
 def test_train_answer_blocked_when_budget_exhausted(tmp_path):
